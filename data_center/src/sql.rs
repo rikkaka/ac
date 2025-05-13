@@ -51,7 +51,7 @@ impl From<TradesData> for Trade {
 }
 
 pub async fn insert_trade(trade: &Trade) -> Result<()> {
-    sqlx::query!(
+    let res = sqlx::query!(
         "INSERT INTO okx_trades (ts, instrument_id, price, size, side, order_count) VALUES ($1, $2, $3, $4, $5, $6)",
         trade.ts,
         trade.instrument_id,
@@ -61,7 +61,17 @@ pub async fn insert_trade(trade: &Trade) -> Result<()> {
         trade.order_count
     )
     .execute(&*POOL)
-    .await?;
+    .await;
+
+    if let Err(ref e) = res {
+        if let Some(e) = e.as_database_error() {
+            if e.is_unique_violation() {
+                return Ok(())
+            }
+        }
+    }
+
+    res?;
 
     Ok(())
 }
