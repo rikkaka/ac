@@ -1,8 +1,8 @@
-use std::time::Duration;
+use std::{panic::AssertUnwindSafe, sync::Arc, time::Duration};
 
 use anyhow::{Error, Ok, Result};
 use data_center::{okx_api::{subscribe_trades}, sql::{insert_trade, Trade}};
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use tokio::time::sleep;
 
 #[tokio::main]
@@ -12,15 +12,18 @@ async fn main() {
     let _ = handle.await;
 }
 
-pub fn spawn_with_retry<O, Fut, F>(mut task: F, delay: Duration) -> tokio::task::JoinHandle<()>
+pub fn spawn_with_retry<Fut, F>(task: F, delay: Duration) -> tokio::task::JoinHandle<()>
 where
-    F: FnMut() -> Fut + Send + 'static,
-    Fut: Future<Output = O> + Send + 'static,
+    F: Fn() -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
 {
     return tokio::spawn(async move {
         loop {
             // 执行任务（无论成功失败，都会继续）
-            task().await;
+            // task().await;
+            let fut = task();
+            let _ = AssertUnwindSafe(fut).catch_unwind().await;
+
 
             // 延迟后再重试
             sleep(delay).await;
@@ -28,13 +31,11 @@ where
     });
 }
 
-async fn store_trades(instrument_id: &str) -> Result<()> {
-    let mut ws_stream = subscribe_trades(instrument_id).await?;
+async fn store_trades(instrument_id: &str) -> () {
+    let mut ws_stream = subscribe_trades(instrument_id).await.unwrap();
     while let Some(data) = ws_stream.next().await {
         dbg!(&data);
         let trade: Trade = data.into();
-        insert_trade(&trade).await?;
+        insert_trade(&trade).await.unwrap();
     }
-
-    Ok(())
 }
