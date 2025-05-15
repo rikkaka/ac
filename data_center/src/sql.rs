@@ -1,9 +1,9 @@
 use anyhow::Result;
 use lazy_static::lazy_static;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
-use crate::okx_api::TradesData;
+use crate::types::{Bbo, Trade};
 
 lazy_static! {
     static ref POOL: PgPool = {
@@ -16,43 +16,12 @@ lazy_static! {
     };
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct Trade {
-    ts: i64,
-    instrument_id: String,
-    price: f64,
-    size: f64,
-    side: bool,
-    order_count: i32,
-}
-
-impl From<TradesData> for Trade {
-    fn from(value: TradesData) -> Self {
-        let ts = value.ts.parse().unwrap();
-        let instrument_id = value.instId;
-        let price = value.px.parse().unwrap();
-        let size = value.sz.parse().unwrap();
-        let side = match value.side.as_str() {
-            "buy" => true,
-            "sell" => false,
-            _ => panic!(),
-        };
-        let order_count = value.count.parse().unwrap();
-
-        Self {
-            ts,
-            instrument_id,
-            price,
-            size,
-            side,
-            order_count,
-        }
-    }
-}
-
 pub async fn insert_trade(trade: &Trade) -> Result<()> {
-    let res = sqlx::query!(
-        "INSERT INTO okx_trades (ts, instrument_id, price, size, side, order_count) VALUES ($1, $2, $3, $4, $5, $6)",
+    sqlx::query!(
+        "INSERT INTO okx_trades 
+        (ts, instrument_id, price, size, side, order_count)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT DO NOTHING",
         trade.ts,
         trade.instrument_id,
         trade.price,
@@ -61,17 +30,28 @@ pub async fn insert_trade(trade: &Trade) -> Result<()> {
         trade.order_count
     )
     .execute(&*POOL)
-    .await;
+    .await?;
 
-    if let Err(ref e) = res {
-        if let Some(e) = e.as_database_error() {
-            if e.is_unique_violation() {
-                return Ok(())
-            }
-        }
-    }
+    Ok(())
+}
 
-    res?;
+pub async fn insert_bbo(bbo: &Bbo) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO okx_bbo 
+        (ts, instrument_id, price_ask, size_ask, order_count_ask, price_bid, size_bid, order_count_bid)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT DO NOTHING",
+        bbo.ts,
+        bbo.instrument_id,
+        bbo.best_ask.price,
+        bbo.best_ask.size,
+        bbo.best_ask.order_count,
+        bbo.best_bid.price,
+        bbo.best_bid.size,
+        bbo.best_bid.order_count
+    )
+    .execute(&*POOL)
+    .await?;
 
     Ok(())
 }
