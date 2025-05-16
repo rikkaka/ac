@@ -66,7 +66,8 @@ impl Sink<Message> for OkxWsStream {
 }
 
 impl Stream for OkxWsStream {
-    type Item = Data;
+    /// 返回 (instrument_id, data)
+    type Item = (String, Data);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -117,7 +118,7 @@ impl Stream for OkxWsStream {
             // 7. 数据帧
             match (push.data, push.arg.channel.as_str()) {
                 (Some(raw), channel) => match Data::try_from_raw(raw[0], channel) {
-                    Ok(data) => return Poll::Ready(Some(data)),
+                    Ok(data) => return Poll::Ready(Some((push.arg.instId, data))),
                     Err(e) => {
                         tracing::info!("Fail to deserialize data: {e}");
                         continue;

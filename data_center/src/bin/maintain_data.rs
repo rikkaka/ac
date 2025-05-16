@@ -6,7 +6,6 @@ use data_center::{
     sql,
 };
 use futures_util::StreamExt;
-use tracing::instrument::WithSubscriber;
 
 static INSTRUMENTS: [&str; 1] = ["ETH-USDT-SWAP"];
 
@@ -24,17 +23,17 @@ async fn main_task() -> Result<()> {
         okx_ws.subscribe("bbo-tbt", inst_id).await?;
     }
 
-    while let Some(data) = okx_ws.next().await {
+    while let Some((instrument_id, data)) = okx_ws.next().await {
         match data {
             Data::Trades(data) => {
-                let Ok(trade) = data.try_into() else {
+                let Ok(trade) = data.try_into_trade() else {
                     tracing::error!("Failed to parse trade data");
                     continue;
                 };
                 sql::insert_trade(&trade).await?;
             }
             Data::BboTbt(data) => {
-                let Ok(bbo) = data.try_into() else {
+                let Ok(bbo) = data.try_into_bbo(instrument_id) else {
                     tracing::error!("Failed to parse bbo data");
                     continue;
                 };
