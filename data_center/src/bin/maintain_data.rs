@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use data_center::{
-    okx_api::{OkxWsEndpoint, OkxWsStream, types::Data},
+    okx_api::{self, subscribe, types::Data, with_heartbeat, OkxWsEndpoint, OkxWsStream},
     sql,
 };
 use futures_util::StreamExt;
@@ -17,10 +17,10 @@ async fn main() {
 }
 
 async fn main_task() -> Result<()> {
-    let mut okx_ws = OkxWsStream::connect(OkxWsEndpoint::Public).await?;
+    let mut okx_ws = okx_api::connect(OkxWsEndpoint::Public).await?;
     for inst_id in INSTRUMENTS {
-        okx_ws.subscribe("trades", inst_id).await?;
-        okx_ws.subscribe("bbo-tbt", inst_id).await?;
+        subscribe(&mut okx_ws, "trades", inst_id).await?;
+        subscribe(&mut okx_ws, "bbo-tbt", inst_id).await?;
     }
 
     while let Some((instrument_id, data)) = okx_ws.next().await {

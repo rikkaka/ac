@@ -1,6 +1,5 @@
 use anyhow::Result;
 use lazy_static::lazy_static;
-use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
 use crate::types::{Bbo, Trade};

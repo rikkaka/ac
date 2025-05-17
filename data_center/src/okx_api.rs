@@ -2,11 +2,11 @@
 pub mod types;
 
 use core::{pin::Pin, task::Poll};
-use std::task::Context;
+use std::{task::Context, time::Duration};
 
 use anyhow::Result;
-use futures::ready;
-use futures_util::{Sink, SinkExt, Stream};
+use futures::{Sink, Stream, ready};
+use futures_util::SinkExt;
 use pin_project::pin_project;
 use serde_json::json;
 use tokio_tungstenite::{
@@ -15,7 +15,7 @@ use tokio_tungstenite::{
 };
 use types::{Data, Push};
 
-use crate::delegate_sink;
+use crate::{delegate_sink, utils::{Duplex, Heartbeat}};
 
 const PUBLIC_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
 const PRIVATE_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/private";
@@ -43,31 +43,37 @@ impl OkxWsEndpoint {
 }
 
 #[pin_project]
-pub struct OkxWsStream {
+pub struct OkxWsStream<S>
+where 
+    S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
+{
+    /// WebSocket 流
     #[pin]
-    inner: WsStream,
+    inner: S,
 }
 
-impl OkxWsStream {
-    pub async fn connect(endpoint: OkxWsEndpoint) -> Result<Self> {
-        let (ws_stream, _) = connect_async(endpoint.url()).await?;
-        Ok(Self { inner: ws_stream })
-    }
-
-    pub async fn subscribe(&mut self, channel: &str, instrument_id: &str) -> Result<()> {
-        subscribe(&mut self.inner, channel, instrument_id).await
-    }
+pub async fn connect(endpoint: OkxWsEndpoint) -> Result<OkxWsStream<Heartbeat<WsStream>>> {
+    let (ws_stream, _) = connect_async(endpoint.url()).await?;
+    let ws_stream = with_heartbeat(ws_stream);
+    Ok(OkxWsStream { inner: ws_stream })
 }
 
-impl Sink<Message> for OkxWsStream {
+impl<S> Sink<Message> for OkxWsStream<S>
+where 
+    S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
+{
     type Error = tungstenite::Error;
 
     delegate_sink!(inner, Message);
 }
 
-impl Stream for OkxWsStream {
+type InstrumentId = String;
+impl<S> Stream for OkxWsStream<S>
+where 
+    S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>
+{
     /// 返回 (instrument_id, data)
-    type Item = (String, Data);
+    type Item = (InstrumentId, Data);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -151,4 +157,11 @@ where
     Ok(())
 }
 
-// pub async fn filter_out_push(ws: &mut S)
+pub fn with_heartbeat<S>(
+    ws_stream: S,
+) -> Heartbeat<S>
+where
+    S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>> + Unpin,
+{
+    Heartbeat::new(ws_stream, Duration::from_secs(25), Duration::from_secs(1))
+}
