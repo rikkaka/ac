@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.98"
+async-stream = "0.3.6"
+chrono = "0.4.41"
 derive-new = "0.7.0"
 dotenvy = "0.15.7"
 futures = "0.3.31"

@@ -52,7 +52,7 @@ where
     inner: S,
 }
 
-pub async fn connect(endpoint: OkxWsEndpoint) -> Result<OkxWsStream<Heartbeat<WsStream>>> {
+pub async fn connect(endpoint: OkxWsEndpoint) -> Result<impl Duplex<Message, tungstenite::Error, (InstrumentId, Data)>> {
     let (ws_stream, _) = connect_async(endpoint.url()).await?;
     let ws_stream = with_heartbeat(ws_stream);
     Ok(OkxWsStream { inner: ws_stream })
