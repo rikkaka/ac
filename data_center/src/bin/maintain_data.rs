@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use data_center::{
-    okx_api::{self, subscribe, types::Data, with_heartbeat, OkxWsEndpoint, OkxWsStream},
-    sql,
+    okx_api::{self, subscribe, types::Data, OkxWsEndpoint},
+    sql, 
 };
 use futures_util::StreamExt;
 
@@ -30,14 +30,18 @@ async fn main_task() -> Result<()> {
                     tracing::error!("Failed to parse trade data");
                     continue;
                 };
-                sql::insert_trade(&trade).await?;
+                if let Err(e) = sql::insert_trade(&trade).await {
+                    tracing::error!("Failed to insert trade data: {e}");
+                }
             }
             Data::BboTbt(data) => {
                 let Ok(bbo) = data.try_into_bbo(instrument_id) else {
                     tracing::error!("Failed to parse bbo data");
                     continue;
                 };
-                sql::insert_bbo(&bbo).await?;
+                if let Err(e) = sql::insert_bbo(&bbo).await {
+                    tracing::error!("Failed to insert bbo data: {e}");
+                }
             }
         }
     }

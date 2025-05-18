@@ -82,14 +82,22 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
+        // 初次调用时，将计时器注册到上下文中
+        if !*this.is_started {
+            let _ = this.pong_timer.poll_tick(cx);
+            let _ = this.ping_ticker.poll_tick(cx);
+            this.ping_ticker.reset();
+            *this.is_started = true;
+        }
+
         // 1. 若没有在给定时间内收到pong，则关闭
-        if this.pong_timer.poll_tick(cx).is_ready() && *this.is_waiting_pong {
+        if *this.is_waiting_pong && this.pong_timer.poll_tick(cx).is_ready()  {
             tracing::error!("Heartbeat timeout");
             return Poll::Ready(None);
         }
 
         // 2. 若距离上次收到消息的时间到达心跳间隔，则发送ping消息并注册计时器
-        if this.ping_ticker.poll_tick(cx).is_ready() && *this.is_started {
+        if this.ping_ticker.poll_tick(cx).is_ready() {
             if let Err(e) = this.inner.as_mut().start_send("ping".into()) {
                 tracing::error!("Failed to send heartbeat: {e}");
                 return Poll::Ready(None);
@@ -103,7 +111,6 @@ where
             let Some(msg) = ready!(this.inner.as_mut().poll_next(cx)) else {
                 return Poll::Ready(None);
             };
-            *this.is_started = true;
             // 在收到任意消息后，重置心跳计时器
             this.ping_ticker.reset();
             // 如果是pong，则结束等待pong
@@ -198,7 +205,7 @@ mod tests {
 
         // Server
         let server = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(60)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
             server_tx.send(Message::text("1")).await.unwrap();
 
             let ping_msg = server_rx.recv().await;
@@ -219,19 +226,5 @@ mod tests {
 
         client.await.unwrap();
         server.await.unwrap();
-
-        // // 服务端发送一个消息
-        // server_tx.send(Message::text("hello")).await.unwrap();
-
-        // // 期待客户端收到消息
-        // let msg = hb.next().await;
-        // assert_eq!(msg, Some(Message::text("hello")));
-
-        // // 等待超时
-        // // tokio::time::sleep(Duration::from_millis(20)).await;
-
-        // // 期待客户端关闭连接
-        // let msg = hb.next().await;
-        // assert_eq!(msg, None);
     }
 }
