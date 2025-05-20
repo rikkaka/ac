@@ -1,32 +1,26 @@
-use futures::{SinkExt, StreamExt};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use std::time::Duration;
+
+use anyhow::Result;
+use data_center::{
+    utils::Heartbeat, 
+};
+use futures_util::StreamExt;
+use tokio_tungstenite::connect_async;
 
 #[tokio::main]
 async fn main() {
-    // OKX WebSocket 服务器地址
-    let url = "wss://ws.okx.com:8443/ws/v5/public";
+    let _guard = utils::init_tracing();
+    let handle = utils::spawn_with_retry(main_task, Duration::from_millis(100));
+    let _ = handle.await;
+}
 
-    println!("Connecting to {}", url);
+async fn main_task() -> Result<()> {
+    let (okx_ws, _) = connect_async("wss://ws.okx.com:8443/ws/v5/public").await?;
+    let mut okx_ws = Heartbeat::new(okx_ws, Duration::from_secs(2), Duration::from_secs(1));
 
-    // 连接 WebSocket
-    let (ws_stream, _) = connect_async(url).await.expect("Failed to connect");
-    println!("WebSocket connection established");
-
-    let (mut write, mut read) = ws_stream.split();
-
-    // 发送 ping 消息
-    write
-        .send(Message::Text("ping".into()))
-        .await
-        .expect("Failed to send ping");
-    println!("Ping message sent");
-
-    // 读取一条消息（可选）
-    if let Some(msg) = read.next().await {
-        if matches!(msg, Ok(ref m) if *m == Message::text("pong")) {
-            println!("Received pong");
-        }
-    } else {
-        println!("No response received");
+    while let Some(msg) = okx_ws.next().await {
+        dbg!(msg);
     }
+
+    anyhow::bail!("WebSocket stream closed");
 }

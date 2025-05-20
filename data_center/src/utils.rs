@@ -103,6 +103,7 @@ where
                 tracing::error!("Failed to send heartbeat: {e}");
                 return Poll::Ready(None);
             }
+            let _ = this.inner.as_mut().poll_flush(cx)?;
             *this.is_waiting_pong = true;
             this.pong_timer.reset();
         }
