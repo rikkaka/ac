@@ -1,9 +1,9 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt};
 use lazy_static::lazy_static;
 use sqlx::{
-    Postgres, QueryBuilder,
+    Postgres,
     postgres::{PgPool, PgPoolOptions},
 };
 
@@ -24,8 +24,7 @@ pub async fn insert_trade(trade: &Trade) -> Result<()> {
     sqlx::query!(
         "INSERT INTO okx_trades 
         (ts, instrument_id, price, size, side, order_count)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT DO NOTHING",
+        VALUES ($1, $2, $3, $4, $5, $6)",
         trade.ts,
         trade.instrument_id,
         trade.price,
@@ -118,8 +117,7 @@ pub async fn insert_bbo(bbo: &Bbo) -> Result<()> {
     sqlx::query!(
         "INSERT INTO okx_bbo 
         (ts, instrument_id, price_ask, size_ask, order_count_ask, price_bid, size_bid, order_count_bid)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT DO NOTHING",
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         bbo.ts,
         bbo.instrument_id,
         bbo.best_ask.price,

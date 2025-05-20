@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS okx_trades (
     ts BIGINT NOT NULL,
-    instrument_id TEXT,
-    trade_id TEXT UNIQUE,
+    instrument_id TEXT NOT NULL ,
+    trade_id TEXT UNIQUE NOT NULL,
     price DOUBLE PRECISION NOT NULL,
     size DOUBLE PRECISION NOT NULL,
     side BOOLEAN NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS okx_bbo (
 CREATE INDEX IF NOT EXISTS idx_okx_bbo ON okx_bbo (ts, instrument_id);
 CREATE INDEX IF NOT EXISTS idx_okx_bbo_ts ON okx_bbo (ts);
 
-CREATE OR REPLACE FUNCTION prevent_out_of_order_insert()
+/* CREATE OR REPLACE FUNCTION prevent_out_of_order_insert()
 RETURNS TRIGGER AS $$
 DECLARE
     max_ts BIGINT;
@@ -39,14 +39,4 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER trg_prevent_insert_okx_trades
-BEFORE INSERT ON okx_trades
-FOR EACH ROW
-EXECUTE FUNCTION prevent_out_of_order_insert();
-
-CREATE OR REPLACE TRIGGER trg_prevent_insert_okx_bbo
-BEFORE INSERT ON okx_bbo
-FOR EACH ROW
-EXECUTE FUNCTION prevent_out_of_order_insert();
+$$ LANGUAGE plpgsql; */
