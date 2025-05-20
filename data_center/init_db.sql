@@ -30,7 +30,7 @@ BEGIN
     EXECUTE format('SELECT MAX(ts) FROM %I', TG_TABLE_NAME)
     INTO max_ts;
 
-    IF NEW.ts < max_ts THEN
+    IF NEW.ts <= max_ts THEN
         RAISE EXCEPTION 'Insertion rejected in table %: ts value (%) < max ts (%)',
                         TG_TABLE_NAME, NEW.ts, max_ts;
     END IF;
