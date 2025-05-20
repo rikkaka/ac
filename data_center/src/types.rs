@@ -5,6 +5,7 @@ pub struct Trade {
     /// Unix millis timestamp
     pub ts: i64,
     pub instrument_id: String,
+    pub trade_id: String,
     pub price: f64,
     pub size: f64,
     pub side: bool,

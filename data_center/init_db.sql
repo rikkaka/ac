@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS okx_trades (
     ts BIGINT NOT NULL,
     instrument_id TEXT,
+    trade_id TEXT UNIQUE,
     price DOUBLE PRECISION NOT NULL,
     size DOUBLE PRECISION NOT NULL,
     side BOOLEAN NOT NULL,
@@ -17,7 +18,8 @@ CREATE TABLE IF NOT EXISTS okx_bbo (
     order_count_ask INT NOT NULL,
     price_bid DOUBLE PRECISION NOT NULL,
     size_bid DOUBLE PRECISION NOT NULL,
-    order_count_bid INT NOT NULL
+    order_count_bid INT NOT NULL,
+    PRIMARY KEY (ts, instrument_id)
 );
 CREATE INDEX IF NOT EXISTS idx_okx_bbo ON okx_bbo (ts, instrument_id);
 CREATE INDEX IF NOT EXISTS idx_okx_bbo_ts ON okx_bbo (ts);
