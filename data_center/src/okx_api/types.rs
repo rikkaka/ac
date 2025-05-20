@@ -21,6 +21,7 @@ pub struct Push<'a> {
 #[derive(Debug, Deserialize)]
 pub struct TradesData {
     pub instId: String,
+    pub tradeId: String,
     pub px: String,
     pub sz: String,
     pub side: String,
@@ -58,6 +59,7 @@ impl TradesData {
         Ok(Trade {
             ts,
             instrument_id: self.instId,
+            trade_id: self.tradeId,
             price,
             size,
             side,

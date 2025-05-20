@@ -34,6 +34,7 @@ impl FromRow<'_, PgRow> for Trade {
         Ok(Trade {
             ts: row.try_get("ts")?,
             instrument_id: row.try_get("instrument_id")?,
+            trade_id: row.try_get("trade_id")?,
             price: row.try_get("price")?,
             size: row.try_get("size")?,
             side: row.try_get("side")?,
