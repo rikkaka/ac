@@ -82,10 +82,8 @@ where
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
 
-        // 初次调用时，将计时器注册到上下文中
+        // 初次调用
         if !*this.is_started {
-            let _ = this.pong_timer.poll_tick(cx);
-            let _ = this.ping_ticker.poll_tick(cx);
             this.ping_ticker.reset();
             *this.is_started = true;
         }
@@ -104,8 +102,15 @@ where
                 return Poll::Ready(None);
             }
             let _ = this.inner.as_mut().poll_flush(cx)?;
+
+            // 发送ping消息后，注册pong计时器
             *this.is_waiting_pong = true;
             this.pong_timer.reset();
+            // 将pong计时器注册到当前上下文
+            if let Poll::Ready(_) = this.pong_timer.poll_tick(cx) {
+                tracing::error!("The duration of pong timer is zero");
+                return Poll::Ready(None);
+            }
         }
 
         // 3. 接收消息
