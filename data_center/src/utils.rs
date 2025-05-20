@@ -98,6 +98,7 @@ where
 
         // 2. 若距离上次收到消息的时间到达心跳间隔，则发送ping消息并注册计时器
         if this.ping_ticker.poll_tick(cx).is_ready() {
+            tracing::info!("Sending ping");
             if let Err(e) = this.inner.as_mut().start_send("ping".into()) {
                 tracing::error!("Failed to send heartbeat: {e}");
                 return Poll::Ready(None);
@@ -115,7 +116,7 @@ where
             this.ping_ticker.reset();
             // 如果是pong，则结束等待pong
             if matches!(msg, Ok(ref m) if *m == Message::text("pong")) {
-                dbg!("Received pong");
+                tracing::info!("Received pong");
                 *this.is_waiting_pong = false;
             } else {
                 break msg;

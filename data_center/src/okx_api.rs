@@ -101,27 +101,22 @@ where
 
             tracing::debug!("Receive message: {text}");
 
-            // 4. 心跳帧
-            if text == "pong" {
-                continue;
-            }
-
-            // 5. 反序列化 OKX push 帧
+            // 4. 反序列化 OKX push 帧
             let push: Push = match serde_json::from_str(&text) {
                 Ok(p) => p,
-                Err(e) => {
-                    tracing::info!("Unidentified message: {e:#?}");
+                Err(_) => {
+                    tracing::info!("Unidentified message: {text}");
                     continue;
                 }
             };
 
-            // 6. 事件帧（例如 subscribe、unsubscribe、error 等）
+            // 5. 事件帧（例如 subscribe、unsubscribe、error 等）
             if push.event.is_some() {
                 tracing::info!("Receive event: {push:#?}");
                 continue;
             }
 
-            // 7. 数据帧
+            // 6. 数据帧
             match (push.data, push.arg.channel.as_str()) {
                 (Some(raw), channel) => match Data::try_from_raw(raw[0], channel) {
                     Ok(data) => return Poll::Ready(Some((push.arg.instId, data))),
