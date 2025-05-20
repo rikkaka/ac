@@ -1,0 +1,11 @@
+[package]
+name = "ac_core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures = "0.3.31"
+pin-project = "1.1.10"
+rustc-hash = "2.1.1"
+tracing = "0.1.41"
+utils = { version = "0.1.0", path = "../utils" }
