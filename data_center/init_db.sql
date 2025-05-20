@@ -12,7 +12,7 @@ CREATE INDEX IF NOT EXISTS idx_okx_trades_ts ON okx_trades (ts);
 
 CREATE TABLE IF NOT EXISTS okx_bbo (
     ts BIGINT NOT NULL,
-    instrument_id TEXT,
+    instrument_id TEXT NOT NULL,
     price_ask DOUBLE PRECISION NOT NULL,
     size_ask DOUBLE PRECISION NOT NULL,
     order_count_ask INT NOT NULL,

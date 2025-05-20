@@ -23,10 +23,11 @@ lazy_static! {
 pub async fn insert_trade(trade: &Trade) -> Result<()> {
     sqlx::query!(
         "INSERT INTO okx_trades 
-        (ts, instrument_id, price, size, side, order_count)
-        VALUES ($1, $2, $3, $4, $5, $6)",
+        (ts, instrument_id, trade_id, price, size, side, order_count)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)",
         trade.ts,
         trade.instrument_id,
+        trade.trade_id,
         trade.price,
         trade.size,
         trade.side,
