@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use futures::{Sink, Stream};
 use tokio::time::sleep;
 use tracing_appender::rolling;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -49,3 +50,6 @@ where
         }
     })
 }
+
+pub trait Duplex<I, IE, O>: Sink<I, Error = IE> + Stream<Item = O> + Unpin {}
+impl<T, I, IE, O> Duplex<I, IE, O> for T where T: Sink<I, Error = IE> + Stream<Item = O> + Unpin {}
