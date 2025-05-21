@@ -16,7 +16,7 @@ async fn main() {
 
 async fn main_task() -> Result<()> {
     let (okx_ws, _) = connect_async("wss://ws.okx.com:8443/ws/v5/public").await?;
-    let mut okx_ws = Heartbeat::new(okx_ws, Duration::from_secs(1), Duration::from_millis(100));
+    let mut okx_ws = Heartbeat::new(okx_ws, Duration::from_secs(1), Duration::from_millis(200));
 
     while let Some(msg) = okx_ws.next().await {
         

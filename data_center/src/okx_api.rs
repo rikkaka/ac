@@ -158,6 +158,6 @@ pub fn with_heartbeat<S>(
 where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>> + Unpin,
 {
-    Heartbeat::new(ws_stream, Duration::from_secs(1), Duration::from_millis(100))
+    Heartbeat::new(ws_stream, Duration::from_secs(1), Duration::from_millis(200))
 }
 
