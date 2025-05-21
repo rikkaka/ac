@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+async-stream = "0.3.6"
+chrono = "0.4.41"
+data_center = { version = "0.1.0", path = "../data_center" }
 futures = "0.3.31"
 pin-project = "1.1.10"
 rustc-hash = "2.1.1"

@@ -16,10 +16,11 @@ async fn main() {
 
 async fn main_task() -> Result<()> {
     let (okx_ws, _) = connect_async("wss://ws.okx.com:8443/ws/v5/public").await?;
-    let mut okx_ws = Heartbeat::new(okx_ws, Duration::from_secs(2), Duration::from_secs(1));
+    let mut okx_ws = Heartbeat::new(okx_ws, Duration::from_secs(1), Duration::from_millis(100));
 
     while let Some(msg) = okx_ws.next().await {
-        dbg!(msg);
+        
+        let _ = dbg!(msg);
     }
 
     anyhow::bail!("WebSocket stream closed");

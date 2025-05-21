@@ -12,7 +12,7 @@ static INSTRUMENTS: [&str; 1] = ["ETH-USDT-SWAP"];
 #[tokio::main]
 async fn main() {
     let _guard = utils::init_tracing();
-    let handle = utils::spawn_with_retry(main_task, Duration::from_millis(100));
+    let handle = utils::spawn_with_retry(main_task, Duration::from_millis(0));
     let _ = handle.await;
 }
 

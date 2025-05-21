@@ -170,7 +170,7 @@ impl BboQuerier {
         self.with_start(start)
     }
 
-    pub fn query(&self) -> impl Stream<Item = Bbo> {
+    pub fn query(self) -> impl Stream<Item = Bbo> + Send {
         let ids = self.instrument_id.clone();
         let start = self.start;
         let end = self.end;

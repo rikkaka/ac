@@ -1,3 +1,5 @@
+pub mod okx;
+
 use crate::{InstId, Order};
 
 #[derive(Debug, Clone)]
@@ -27,10 +29,21 @@ pub struct Bbo {
     pub best_bid: Level,
 }
 
-// impl MarketData for Bbo {
-//     fn check_fill(&self, order: &Order) -> Option<crate::Fill> {
-//         if !order.get_instrument_id().eq(&self.instrument_id) {
-//             return None;
-//         }
-//     }
-// }
+impl From<data_center::types::Bbo> for Bbo {
+    fn from(bbo: data_center::types::Bbo) -> Self {
+        Self {
+            ts: bbo.ts,
+            instrument_id: bbo.instrument_id,
+            best_ask: Level {
+                price: bbo.best_ask.price,
+                size: bbo.best_ask.size,
+                order_count: bbo.best_ask.order_count,
+            },
+            best_bid: Level {
+                price: bbo.best_bid.price,
+                size: bbo.best_bid.size,
+                order_count: bbo.best_bid.order_count,
+            },
+        }
+    }
+}
