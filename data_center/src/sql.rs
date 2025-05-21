@@ -72,7 +72,7 @@ impl TradeQuerier {
         self.with_start(start)
     }
 
-    pub fn query(&self) -> impl Stream<Item = Result<Trade, sqlx::Error>> {
+    pub fn query(&self) -> impl Stream<Item = Trade> {
         let ids = self.instrument_id.clone();
         let start = self.start;
         let end = self.end;
@@ -108,7 +108,10 @@ impl TradeQuerier {
                        .fetch(&*POOL);
 
             while let Some(row) = rows.next().await {
-                yield row;      // 往外一个个发
+                match row {
+                    Ok(row) => yield row,
+                    Err(e) => tracing::error!("Error fetching trades: {:?}", e),
+                }
             }
         }
     }
@@ -167,7 +170,7 @@ impl BboQuerier {
         self.with_start(start)
     }
 
-    pub fn query(&self) -> impl Stream<Item = Result<Bbo, sqlx::Error>> {
+    pub fn query(&self) -> impl Stream<Item = Bbo> {
         let ids = self.instrument_id.clone();
         let start = self.start;
         let end = self.end;
@@ -203,7 +206,10 @@ impl BboQuerier {
                        .fetch(&*POOL);
 
             while let Some(row) = rows.next().await {
-                yield row;      // 往外一个个发
+                match row {
+                    Ok(row) => yield row,
+                    Err(e) => tracing::error!("Error fetching BBO: {:?}", e),
+                }
             }
         }
     }

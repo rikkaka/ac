@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::{atomic::{AtomicU64, Ordering}, Arc}, time::{Duration, Instant}};
 
 use anyhow::Result;
 use data_center::{
@@ -22,8 +22,12 @@ async fn main_task() -> Result<()> {
         subscribe(&mut okx_ws, "trades", inst_id).await?;
         subscribe(&mut okx_ws, "bbo-tbt", inst_id).await?;
     }
+    let last_data_ts = Arc::new(AtomicU64::new(0));
 
     while let Some((instrument_id, data)) = okx_ws.next().await {
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+        last_data_ts.store(now, Ordering::Relaxed);
+
         match data {
             Data::Trades(data) => {
                 let Ok(trade) = data.try_into_trade() else {
@@ -46,5 +50,7 @@ async fn main_task() -> Result<()> {
         }
     }
 
-    anyhow::bail!("WebSocket stream closed");
+    let last = last_data_ts.load(Ordering::Relaxed);
+    let now = chrono::Utc::now().timestamp_millis() as u64;
+    anyhow::bail!("WebSocket stream closed. Last data timestamp: {last}, now: {now}");
 }
