@@ -1,6 +1,7 @@
 use crate::{ClientEvent, BrokerEvent};
 
 mod single_ticker;
+mod calc;
 
 /// D: type for the data
 pub trait Strategy<D> {
@@ -18,3 +19,4 @@ pub trait Strategy<D> {
         orders
     }
 }
+

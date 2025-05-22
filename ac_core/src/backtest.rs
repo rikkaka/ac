@@ -4,46 +4,51 @@
 //! A strategy receives data and returns orders. Thus this mod need to simulate
 //! an environment where the results of the sequence of orders can be evaluated.
 use std::{
-    collections::VecDeque, pin::Pin, task::{Context, Poll}
+    collections::VecDeque,
+    pin::Pin,
+    task::{Context, Poll},
 };
 
-use futures::{Sink, Stream, ready, StreamExt};
+use futures::{Sink, Stream, StreamExt, ready};
 use pin_project::pin_project;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    Broker, BrokerEvent, ClientEvent, DataProvider, ExecType, Fill, InstId, LimitOrder, Order,
-    OrderId,
-    data::Bbo,
-    strategy::Strategy,
-    utils::{fill_market_order, try_fill_limit_order},
+    Broker, BrokerEvent, ClientEvent, DataProvider, DrawMatcher, ExecType, Fill, InstId,
+    LimitOrder, MatchOrder, Order, OrderId, data::Bbo, strategy::Strategy,
 };
 
 #[pin_project]
-pub struct BboBroker<D, DP> {
+pub struct SandboxBroker<DP, D, M> {
     limit_orders: FxHashMap<OrderId, LimitOrder>,
     broker_events_buf: VecDeque<BrokerEvent<D>>,
-    inst_bbo: FxHashMap<InstId, Bbo>,
+    inst_matcher: FxHashMap<InstId, M>,
     #[pin]
     data_provider: DP,
 }
 
-impl<DP> BboBroker<Bbo, DP>
+impl<DP, D, M> SandboxBroker<DP, D, M>
 where
-    DP: DataProvider<Bbo>,
+    DP: DataProvider<D>,
+    D: DrawMatcher<M>,
+    M: MatchOrder,
 {
     pub async fn new(mut data_provider: DP) -> Self {
-        let mut inst_bbo = FxHashMap::default();
-        while inst_bbo.len() < data_provider.instruments().len() {
-            if let Some(bbo) = data_provider.next().await {
-                inst_bbo.insert(bbo.instrument_id.clone(), bbo);
+        let mut inst_matcher = FxHashMap::default();
+        while inst_matcher.len() < data_provider.instruments().len() {
+            if let Some(matcher) = data_provider
+                .next()
+                .await
+                .and_then(DrawMatcher::draw_matcher)
+            {
+                inst_matcher.insert(matcher.instrument_id(), matcher);
             }
         }
 
         Self {
             limit_orders: Default::default(),
             broker_events_buf: Default::default(),
-            inst_bbo,
+            inst_matcher,
             data_provider,
         }
     }
@@ -52,13 +57,15 @@ where
         match client_event {
             ClientEvent::PlaceOrder(order) => match order {
                 Order::Market(order) => {
-                    let fill = fill_market_order(&order, &self.inst_bbo);
+                    let fill = MatchOrder::fill_market_order(&self.inst_matcher, &order);
                     self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
                 }
                 Order::Limit(order) => {
-                    if let Some(fill) =
-                        try_fill_limit_order(&order, &self.inst_bbo, ExecType::Taker)
-                    {
+                    if let Some(fill) = MatchOrder::try_fill_limit_order(
+                        &self.inst_matcher,
+                        &order,
+                        ExecType::Taker,
+                    ) {
                         self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
                     } else {
                         self.limit_orders.insert(order.order_id, order);
@@ -88,14 +95,18 @@ where
         }
     }
 
-    pub fn renew_bbo(&mut self, new_bbo: Bbo) {
-        self.inst_bbo.insert(new_bbo.instrument_id.clone(), new_bbo);
+    pub fn renew_matcher(&mut self, new_data: D) {
+        if let Some(matcher) = new_data.draw_matcher() {
+            self.inst_matcher.insert(matcher.instrument_id(), matcher);
+        }
     }
 
     /// 遍历所有挂单并检查能否成交；将成交的挂单推入事件并移除
     pub fn try_fill_placed_orders(&mut self) {
-        self.limit_orders.retain(|id, order| {
-            if let Some(fill) = try_fill_limit_order(&order, &self.inst_bbo, ExecType::Maker) {
+        self.limit_orders.retain(|_, order| {
+            if let Some(fill) =
+                MatchOrder::try_fill_limit_order(&self.inst_matcher, &order, ExecType::Maker)
+            {
                 self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
                 false
             } else {
@@ -105,9 +116,11 @@ where
     }
 }
 
-impl<DP> Sink<Vec<ClientEvent>> for BboBroker<Bbo, DP>
+impl<DP, D, M> Sink<Vec<ClientEvent>> for SandboxBroker<DP, D, M>
 where
-    DP: DataProvider<Bbo>,
+    DP: DataProvider<D>,
+    D: DrawMatcher<M>,
+    M: MatchOrder,
 {
     type Error = anyhow::Error;
 
@@ -130,11 +143,13 @@ where
     }
 }
 
-impl<DP> Stream for BboBroker<Bbo, DP>
+impl<DP, D, M> Stream for SandboxBroker<DP, D, M>
 where
-    DP: DataProvider<Bbo>,
+    DP: DataProvider<D>,
+    D: DrawMatcher<M>,
+    M: MatchOrder,
 {
-    type Item = BrokerEvent<Bbo>;
+    type Item = BrokerEvent<D>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.as_mut().project();
@@ -146,7 +161,7 @@ where
 
         // 获取最新的Bbo数据并更新字段，同时检查挂单能否被fill。将新的fill的挂单与Bbo放入buf中，并推送buf的第一条数据。
         if let Some(data) = ready!(this.data_provider.as_mut().poll_next(cx)) {
-            self.renew_bbo(data.clone());
+            self.renew_matcher(data.clone());
             self.try_fill_placed_orders();
             self.broker_events_buf.push_back(BrokerEvent::Data(data));
 
@@ -159,23 +174,28 @@ where
     }
 }
 
-impl<DP: DataProvider<Bbo>> Broker<Bbo> for BboBroker<Bbo, DP> {}
+impl<DP, D, M> Broker<D> for SandboxBroker<DP, D, M>
+where
+    DP: DataProvider<D>,
+    D: DrawMatcher<M>,
+    M: MatchOrder,
+{
+}
 
-pub struct BboEngine<Dp, S> {
-    broker: BboBroker<Bbo, Dp>,
+pub struct BboEngine<DP, D, M, S> {
+    broker: SandboxBroker<DP, D, M>,
     strategy: S,
 }
 
-impl<Dp,S> BboEngine<Dp, S>
+impl<DP, D, M, S> BboEngine<DP, D, M, S>
 where
-    Dp: DataProvider<Bbo>,
-    S: Strategy<Bbo>
+    DP: DataProvider<D>,
+    D: DrawMatcher<M>,
+    M: MatchOrder,
+    S: Strategy<D>,
 {
-    pub fn new(broker: BboBroker<Bbo, Dp>, strategy: S) -> Self {
-        Self {
-            broker,
-            strategy,
-        }
+    pub fn new(broker: SandboxBroker<DP, D, M>, strategy: S) -> Self {
+        Self { broker, strategy }
     }
 
     pub async fn run(&mut self) {

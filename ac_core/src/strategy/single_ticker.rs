@@ -21,20 +21,12 @@ pub struct Trade {
     side: bool,
 }
 
-pub struct AccountState {
+pub struct State {
     orders: Vec<Order>,
     portfolio: Portfolio,
 }
 
-impl Order {
-    // Check whether the order
-    // fn check_deal_with_trade(&mut self, trade: Trade)
-}
+impl State {
 
-impl AccountState {
-    fn renew_with_trade(&mut self, trade: Trade) {
-        // if ticker
-        todo!()
-    }
 }
 

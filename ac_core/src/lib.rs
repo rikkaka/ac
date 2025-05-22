@@ -3,8 +3,9 @@ mod data;
 mod strategy;
 mod utils;
 
-use futures::{Stream, StreamExt};
 use ::utils::Duplex;
+use futures::{Stream, StreamExt};
+use rustc_hash::FxHashMap;
 
 type InstId = String;
 
@@ -44,7 +45,7 @@ pub struct Fill {
     pub order_id: OrderId,
     pub price: f64,
     pub size: f64,
-    pub exec_type: ExecType
+    pub exec_type: ExecType,
 }
 
 pub enum BrokerEvent<D> {
@@ -60,3 +61,17 @@ pub enum ClientEvent {
 
 /// D: type for the data; IE: error type for the input
 pub trait Broker<D>: Duplex<Vec<ClientEvent>, anyhow::Error, BrokerEvent<D>> {}
+
+pub trait MatchOrder: Sized {
+    fn fill_market_order(inst_data: &FxHashMap<InstId, Self>, order: &MarketOrder) -> Fill;
+    fn try_fill_limit_order(
+        inst_data: &FxHashMap<InstId, Self>,
+        order: &LimitOrder,
+        exec_type: ExecType,
+    ) -> Option<Fill>;
+    fn instrument_id(&self) -> InstId;
+}
+
+pub trait DrawMatcher<M>: Clone {
+    fn draw_matcher(self) -> Option<M>;
+}
