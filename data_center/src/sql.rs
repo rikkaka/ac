@@ -200,7 +200,6 @@ impl BboQuerier {
 
             builder.push(" ORDER BY ts DESC");
 
-            // 真正执行
             let mut rows =
                 builder.build_query_as::<Bbo>()
                        .fetch(&*POOL);

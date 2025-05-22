@@ -35,10 +35,16 @@ pub struct LimitOrder {
     pub side: bool,
 }
 
+pub enum ExecType {
+    Taker,
+    Maker,
+}
+
 pub struct Fill {
     pub order_id: OrderId,
     pub price: f64,
     pub size: f64,
+    pub exec_type: ExecType
 }
 
 pub enum BrokerEvent<D> {
@@ -53,4 +59,4 @@ pub enum ClientEvent {
 }
 
 /// D: type for the data; IE: error type for the input
-pub trait Broker<D, IE>: Duplex<Vec<ClientEvent>, IE, BrokerEvent<D>> {}
+pub trait Broker<D>: Duplex<Vec<ClientEvent>, anyhow::Error, BrokerEvent<D>> {}

@@ -4,18 +4,19 @@
 //! A strategy receives data and returns orders. Thus this mod need to simulate
 //! an environment where the results of the sequence of orders can be evaluated.
 use std::{
-    collections::VecDeque,
-    pin::Pin,
-    task::{Context, Poll},
+    collections::VecDeque, pin::Pin, task::{Context, Poll}
 };
 
-use futures::{Sink, Stream, ready};
+use futures::{Sink, Stream, ready, StreamExt};
 use pin_project::pin_project;
 use rustc_hash::FxHashMap;
 
 use crate::{
-    Broker, BrokerEvent, ClientEvent, DataProvider, Fill, InstId, LimitOrder, Order, OrderId,
-    data::Bbo, strategy::Strategy, utils::fill_market_order,
+    Broker, BrokerEvent, ClientEvent, DataProvider, ExecType, Fill, InstId, LimitOrder, Order,
+    OrderId,
+    data::Bbo,
+    strategy::Strategy,
+    utils::{fill_market_order, try_fill_limit_order},
 };
 
 #[pin_project]
@@ -31,7 +32,7 @@ impl<DP> BboBroker<Bbo, DP>
 where
     DP: DataProvider<Bbo>,
 {
-    async fn new(mut data_provider: DP) -> Self {
+    pub async fn new(mut data_provider: DP) -> Self {
         let mut inst_bbo = FxHashMap::default();
         while inst_bbo.len() < data_provider.instruments().len() {
             if let Some(bbo) = data_provider.next().await {
@@ -47,20 +48,23 @@ where
         }
     }
 
-    fn on_client_event(&mut self, client_event: ClientEvent) {
+    pub fn on_client_event(&mut self, client_event: ClientEvent) {
         match client_event {
-            ClientEvent::PlaceOrder(order) => {
-                match order {
-                    Order::Market(order) => {
-                        let fill = fill_market_order(&order, &self.inst_bbo);
+            ClientEvent::PlaceOrder(order) => match order {
+                Order::Market(order) => {
+                    let fill = fill_market_order(&order, &self.inst_bbo);
+                    self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
+                }
+                Order::Limit(order) => {
+                    if let Some(fill) =
+                        try_fill_limit_order(&order, &self.inst_bbo, ExecType::Taker)
+                    {
                         self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
-                    }
-                    Order::Limit(order) => {
-                        // Handle limit order
+                    } else {
                         self.limit_orders.insert(order.order_id, order);
                     }
                 }
-            }
+            },
             ClientEvent::ModifyOrder(order) => {
                 if let Order::Limit(order) = order {
                     if let Some(existing_order) = self.limit_orders.get_mut(&order.order_id) {
@@ -75,7 +79,7 @@ where
         }
     }
 
-    fn on_client_events<I>(&mut self, client_events: I)
+    pub fn on_client_events<I>(&mut self, client_events: I)
     where
         I: Iterator<Item = ClientEvent>,
     {
@@ -83,13 +87,29 @@ where
             self.on_client_event(event);
         }
     }
+
+    pub fn renew_bbo(&mut self, new_bbo: Bbo) {
+        self.inst_bbo.insert(new_bbo.instrument_id.clone(), new_bbo);
+    }
+
+    /// 遍历所有挂单并检查能否成交；将成交的挂单推入事件并移除
+    pub fn try_fill_placed_orders(&mut self) {
+        self.limit_orders.retain(|id, order| {
+            if let Some(fill) = try_fill_limit_order(&order, &self.inst_bbo, ExecType::Maker) {
+                self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
+                false
+            } else {
+                true
+            }
+        });
+    }
 }
 
 impl<DP> Sink<Vec<ClientEvent>> for BboBroker<Bbo, DP>
 where
     DP: DataProvider<Bbo>,
 {
-    type Error = ();
+    type Error = anyhow::Error;
 
     fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
@@ -116,19 +136,55 @@ where
 {
     type Item = BrokerEvent<Bbo>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.project();
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.as_mut().project();
+
+        // 若buf中尚有未推送的事件，则推送
         if let Some(event) = this.broker_events_buf.pop_front() {
             return Poll::Ready(Some(event));
         }
 
+        // 获取最新的Bbo数据并更新字段，同时检查挂单能否被fill。将新的fill的挂单与Bbo放入buf中，并推送buf的第一条数据。
         if let Some(data) = ready!(this.data_provider.as_mut().poll_next(cx)) {
-            return Poll::Ready(Some(BrokerEvent::Data(data)));
+            self.renew_bbo(data.clone());
+            self.try_fill_placed_orders();
+            self.broker_events_buf.push_back(BrokerEvent::Data(data));
+
+            let event = self.broker_events_buf.pop_front().unwrap();
+
+            return Poll::Ready(Some(event));
         } else {
             return Poll::Ready(None);
         }
     }
 }
 
-impl<DP: DataProvider<Bbo>> Broker<Bbo, ()> for BboBroker<Bbo, DP> {}
+impl<DP: DataProvider<Bbo>> Broker<Bbo> for BboBroker<Bbo, DP> {}
 
+pub struct BboEngine<Dp, S> {
+    broker: BboBroker<Bbo, Dp>,
+    strategy: S,
+}
+
+impl<Dp,S> BboEngine<Dp, S>
+where
+    Dp: DataProvider<Bbo>,
+    S: Strategy<Bbo>
+{
+    pub fn new(broker: BboBroker<Bbo, Dp>, strategy: S) -> Self {
+        Self {
+            broker,
+            strategy,
+        }
+    }
+
+    pub async fn run(&mut self) {
+        loop {
+            let Some(broker_event) = self.broker.next().await else {
+                break;
+            };
+            let client_events = self.strategy.on_event(&broker_event);
+            self.broker.on_client_events(client_events.into_iter());
+        }
+    }
+}

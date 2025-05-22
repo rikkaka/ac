@@ -1,0 +1,9 @@
+# 所有文本文件统一为 LF
+* text=auto eol=lf
+
+# Windows 批处理文件保留 CRLF
+*.bat text eol=crlf
+
+# 二进制文件不转换换行符
+*.png binary
+*.jpg binary
