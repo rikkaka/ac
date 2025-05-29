@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::Result;
+use chrono::Duration;
 use futures::{Sink, Stream, StreamExt, ready};
 use pin_project::pin_project;
 use rustc_hash::FxHashMap;
@@ -20,33 +21,6 @@ use crate::{
     Broker, BrokerEvent, ClientEvent, DataProvider, ExecType, Fill, FillState, InstId, LimitOrder,
     MarketOrder, Order, OrderId, Portfolio, Timestamp, data::Bbo, strategy::Strategy,
 };
-
-pub struct SandboxEngine<DP, D, M, S> {
-    broker: SandboxBroker<DP, D, M>,
-    strategy: S,
-}
-
-impl<DP, D, M, S> SandboxEngine<DP, D, M, S>
-where
-    DP: DataProvider<D>,
-    D: MarketData<M>,
-    M: MatchOrder,
-    S: Strategy<D>,
-{
-    pub fn new(broker: SandboxBroker<DP, D, M>, strategy: S) -> Self {
-        Self { broker, strategy }
-    }
-
-    pub async fn run(&mut self) {
-        loop {
-            let Some(broker_event) = self.broker.next().await else {
-                break;
-            };
-            let client_events = self.strategy.on_event(&broker_event);
-            self.broker.on_client_events(client_events.into_iter());
-        }
-    }
-}
 
 #[pin_project]
 pub struct SandboxBroker<DP, D, M> {
@@ -75,7 +49,7 @@ where
         mut data_provider: DP,
         cash: f64,
         transaction_cost_model: TransactionCostModel,
-        report_frequency: u64,
+        report_frequency: Duration,
     ) -> Self {
         let mut inst_matcher = FxHashMap::default();
         let mut ts = 0;
@@ -118,50 +92,6 @@ where
         self.portfolio.update(fill);
         let total_value = self.get_total_value();
         self.reporter.insert(self.ts, total_value);
-    }
-
-    pub fn on_client_event(&mut self, client_event: ClientEvent) {
-        match client_event {
-            ClientEvent::PlaceOrder(order) => match order {
-                Order::Market(order) => {
-                    let fill = MatchOrder::fill_market_order(&self.inst_matcher, &order);
-                    self.on_fill(&fill);
-                    self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
-                }
-                Order::Limit(order) => {
-                    if let Some(fill) = MatchOrder::try_fill_limit_order(
-                        &self.inst_matcher,
-                        &order,
-                        ExecType::Taker,
-                    ) {
-                        self.on_fill(&fill);
-                        self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
-                    } else {
-                        self.limit_orders.insert(order.order_id, order);
-                    }
-                }
-            },
-            ClientEvent::ModifyOrder(order) => {
-                if let Order::Limit(order) = order {
-                    if let Some(existing_order) = self.limit_orders.get_mut(&order.order_id) {
-                        existing_order.price = order.price;
-                        existing_order.size = order.size;
-                    }
-                }
-            }
-            ClientEvent::CancelOrder(order_id) => {
-                self.limit_orders.remove(&order_id);
-            }
-        }
-    }
-
-    pub fn on_client_events<I>(&mut self, client_events: I)
-    where
-        I: Iterator<Item = ClientEvent>,
-    {
-        for event in client_events {
-            self.on_client_event(event);
-        }
     }
 
     pub fn on_data(&mut self, new_data: D) {
@@ -266,6 +196,40 @@ where
     D: MarketData<M>,
     M: MatchOrder,
 {
+    fn on_client_event(&mut self, client_event: ClientEvent) {
+        match client_event {
+            ClientEvent::PlaceOrder(order) => match order {
+                Order::Market(order) => {
+                    let fill = MatchOrder::fill_market_order(&self.inst_matcher, &order);
+                    self.on_fill(&fill);
+                    self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
+                }
+                Order::Limit(order) => {
+                    if let Some(fill) = MatchOrder::try_fill_limit_order(
+                        &self.inst_matcher,
+                        &order,
+                        ExecType::Taker,
+                    ) {
+                        self.on_fill(&fill);
+                        self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
+                    } else {
+                        self.limit_orders.insert(order.order_id, order);
+                    }
+                }
+            },
+            ClientEvent::ModifyOrder(order) => {
+                if let Order::Limit(order) = order {
+                    if let Some(existing_order) = self.limit_orders.get_mut(&order.order_id) {
+                        existing_order.price = order.price;
+                        existing_order.size = order.size;
+                    }
+                }
+            }
+            ClientEvent::CancelOrder(order_id) => {
+                self.limit_orders.remove(&order_id);
+            }
+        }
+    }
 }
 
 pub trait MatchOrder: Sized {
@@ -380,9 +344,9 @@ pub struct Reporter {
 }
 
 impl Reporter {
-    fn new(frequency: u64) -> Self {
+    fn new(frequency: Duration) -> Self {
         Self {
-            frequency,
+            frequency: frequency.num_milliseconds() as u64,
             ..Default::default()
         }
     }
@@ -451,9 +415,9 @@ impl Record {
 }
 
 pub struct TransactionCostModel {
-    pub maker_fee: f64,
-    pub taker_fee: f64,
-    pub slippage: f64,
+    maker_fee: f64,
+    taker_fee: f64,
+    slippage: f64,
 }
 
 impl TransactionCostModel {
@@ -462,6 +426,14 @@ impl TransactionCostModel {
             maker_fee,
             taker_fee,
             slippage,
+        }
+    }
+
+    pub fn new_okx(slippage: f64) -> Self {
+        Self {
+            maker_fee: 0.0002,
+            taker_fee: 0.0005,
+            slippage
         }
     }
 
@@ -484,13 +456,11 @@ impl TransactionCostModel {
 mod tests {
     use float_cmp::assert_approx_eq;
 
-    
-
     use super::*;
 
     #[test]
     fn test_reporter_insert_same_bin() {
-        let mut reporter = Reporter::new(100);
+        let mut reporter = Reporter::new(Duration::milliseconds(100));
         reporter.insert(150, 10.0);
         reporter.insert(180, 15.0);
 
@@ -501,7 +471,7 @@ mod tests {
 
     #[test]
     fn test_reporter_insert_multiple_bins() {
-        let mut reporter = Reporter::new(100);
+        let mut reporter = Reporter::new(Duration::milliseconds(100));
         reporter.insert(150, 10.0);
         reporter.insert(450, 30.0);
 
@@ -517,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_reporter_end() {
-        let mut reporter = Reporter::new(100);
+        let mut reporter = Reporter::new(Duration::milliseconds(100));
         reporter.insert(150, 10.0);
         reporter.end();
         reporter.end(); // End again does nothing
@@ -578,7 +548,7 @@ mod tests {
             data_provider,
             100000.0,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
 
@@ -621,7 +591,7 @@ mod tests {
             data_provider,
             100000.0,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
 
@@ -666,7 +636,7 @@ mod tests {
             data_provider,
             100000.0,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
 
@@ -714,7 +684,7 @@ mod tests {
             data_provider,
             100000.0,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
 
@@ -769,7 +739,7 @@ mod tests {
             data_provider,
             100000.0,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
 
@@ -824,7 +794,7 @@ mod tests {
             data_provider,
             100000.0,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
 
@@ -866,7 +836,7 @@ mod tests {
             data_provider,
             100000.0,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
         let initial_cash = broker.cash;
@@ -989,7 +959,7 @@ mod tests {
             data_provider,
             initial_cash,
             transaction_cost_model,
-            1000,
+            Duration::milliseconds(1000),
         )
         .await;
 

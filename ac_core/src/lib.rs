@@ -3,11 +3,15 @@ mod data;
 mod strategy;
 mod utils;
 
+use std::marker::PhantomData;
+
 use ::utils::Duplex;
 use arrayvec::ArrayString;
 use float_cmp::approx_eq;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use rustc_hash::FxHashMap;
+
+use crate::strategy::Strategy;
 
 type InstId = ArrayString<28>;
 
@@ -117,12 +121,12 @@ impl LimitOrder {
 
     pub fn fill(mut self, fill: &Fill) -> Option<Self> {
         match fill.state {
-            FillState::Live => {Some(self)}
+            FillState::Live => Some(self),
             FillState::Partially => {
                 self.filled_size = fill.acc_filled_size;
                 Some(self)
             }
-            FillState::Filled => {None},
+            FillState::Filled => None,
         }
     }
 }
@@ -185,7 +189,14 @@ impl ClientEvent {
 }
 
 /// D: type for the data; IE: error type for the input
-pub trait Broker<D>: Duplex<Vec<ClientEvent>, anyhow::Error, BrokerEvent<D>> {}
+pub trait Broker<D>: Duplex<Vec<ClientEvent>, anyhow::Error, BrokerEvent<D>> {
+    fn on_client_event(&mut self, client_event: ClientEvent);
+    fn on_client_events(&mut self, client_events: impl Iterator<Item = ClientEvent>) {
+        for event in client_events {
+            self.on_client_event(event);
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Position {
@@ -258,6 +269,36 @@ impl Portfolio {
             value += position.size * price;
         }
         value
+    }
+}
+
+pub struct Engine<B, S, D> {
+    broker: B,
+    strategy: S,
+    _phantom_data: PhantomData<D>,
+}
+
+impl<B, S, D> Engine<B, S, D>
+where
+    B: Broker<D>,
+    S: Strategy<D>,
+{
+    pub fn new(broker: B, strategy: S) -> Self {
+        Self {
+            broker,
+            strategy,
+            _phantom_data: PhantomData,
+        }
+    }
+
+    pub async fn run(&mut self) {
+        loop {
+            let Some(broker_event) = self.broker.next().await else {
+                break;
+            };
+            let client_events = self.strategy.on_event(&broker_event);
+            self.broker.on_client_events(client_events.into_iter());
+        }
     }
 }
 

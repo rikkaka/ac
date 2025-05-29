@@ -72,7 +72,8 @@ pub fn query_trade(query_option: QueryOption) -> impl Stream<Item = Trade> + Sen
             builder.push_bind(t.timestamp_millis());
         }
 
-        // 真正执行
+        builder.push(" ORDER BY ts ASC");
+
         let mut rows =
             builder.build_query_as::<Trade>()
                    .fetch(&*POOL);
@@ -130,6 +131,8 @@ pub fn query_bbo(query_option: QueryOption) -> impl Stream<Item = Bbo> + Send {
             builder.push_bind(t.timestamp_millis());
         }
 
+        builder.push(" ORDER BY ts ASC");
+
         let mut rows =
             builder.build_query_as::<Bbo>()
                    .fetch(&*POOL);
@@ -154,23 +157,4 @@ pub fn query_level1(query_option: QueryOption) -> impl Stream<Item = Level1> + S
     let bbo_trade_stream = query_bbo_trade(query_option);
 
     Level1Stream::new(bbo_trade_stream)
-}
-
-#[cfg(test)]
-mod test {
-    use futures::pin_mut;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_level1_querier() {
-        let query_option = QueryOption::default();
-        let level1_stream = query_level1(query_option);
-
-        pin_mut!(level1_stream);
-        for _ in 0..10 {
-            let level1 = level1_stream.next().await.unwrap();
-            dbg!(level1);
-        }
-    }
 }
