@@ -33,8 +33,8 @@ impl Order {
 
     pub fn instrument_id(&self) -> InstId {
         match self {
-            Order::Market(order) => order.instrument_id.clone(),
-            Order::Limit(order) => order.instrument_id.clone(),
+            Order::Market(order) => order.instrument_id,
+            Order::Limit(order) => order.instrument_id,
         }
     }
 
@@ -108,7 +108,7 @@ impl LimitOrder {
     pub fn modified(&mut self, new_size: f64, new_price: f64) -> Self {
         self.size = self.filled_size + new_size;
         self.price = new_price;
-        return self.clone();
+        *self
     }
 
     pub fn unfilled_size(&self) -> f64 {
@@ -224,6 +224,7 @@ impl Position {
     }
 }
 
+#[derive(Default)]
 pub struct Portfolio {
     positions: FxHashMap<InstId, Position>,
 }
@@ -231,12 +232,12 @@ pub struct Portfolio {
 impl Portfolio {
     pub fn new() -> Self {
         Self {
-            positions: FxHashMap::default(),
+            ..Default::default()
         }
     }
 
     pub fn update(&mut self, new_fill: &Fill) {
-        let instrument_id = new_fill.instrument_id.clone();
+        let instrument_id = new_fill.instrument_id;
 
         if let Some(position) = self.positions.get_mut(&instrument_id) {
             position.update(new_fill);
@@ -246,7 +247,7 @@ impl Portfolio {
             }
         } else {
             self.positions
-                .insert(instrument_id.clone(), Position::new_from_fill(new_fill));
+                .insert(instrument_id, Position::new_from_fill(new_fill));
         }
     }
 

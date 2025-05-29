@@ -115,7 +115,7 @@ impl Signaler<Bbo> for OfiMomentum {
         // Initialize variables on first data
         if self.variables.is_none() {
             self.variables = Some(Variables::new(
-                bbo.clone(),
+                *bbo,
                 self.window_ofi,
                 self.window_ema,
             ));

@@ -140,7 +140,7 @@ impl NaiveLimitExecutor {
             // 两个思路：1：在收到信号后，在信号改变前，维持最初的挂单，不改单；
             // 2：锚定最激进的限价单，持续改单。
             // 上面被注释掉的代码是第2种思路。目前先试试第一种思路。也许可以写进参数。
-            return vec![];
+            vec![]
         } else {
             // 方向不匹配，则取消订单并重新下单
             let mut events = vec![];
@@ -148,8 +148,8 @@ impl NaiveLimitExecutor {
             events.push(ClientEvent::CancelOrder(old_order_id));
             let new_order = self.gen_order(raw_size, price);
             self.placed_order = new_order;
-            events.extend(new_order.map(ClientEvent::place_limit_order).into_iter());
-            return events;
+            events.extend(new_order.map(ClientEvent::place_limit_order));
+            events
         }
     }
 
@@ -169,7 +169,7 @@ impl Executor<Bbo> for NaiveLimitExecutor {
         match broker_event {
             BrokerEvent::Data(bbo) => self.bbo = *bbo,
             BrokerEvent::Fill(fill) => {
-                self.placed_order = self.placed_order.map(|order| order.fill(fill)).flatten();
+                self.placed_order = self.placed_order.and_then(|order| order.fill(fill));
                 self.position.update(fill);
             }
         }

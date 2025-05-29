@@ -314,7 +314,7 @@ impl MatchOrder for Bbo {
         };
         Fill {
             order_id: order.order_id,
-            instrument_id: order.instrument_id.clone(),
+            instrument_id: order.instrument_id,
             side: order.side,
             price,
             filled_size: order.size,
@@ -339,7 +339,7 @@ impl MatchOrder for Bbo {
         {
             let fill = Fill {
                 order_id: order.order_id,
-                instrument_id: order.instrument_id.clone(),
+                instrument_id: order.instrument_id,
                 side: order.side,
                 price: order.price,
                 filled_size: order.size,
@@ -354,7 +354,7 @@ impl MatchOrder for Bbo {
     }
 
     fn instrument_id(&self) -> InstId {
-        self.instrument_id.clone()
+        self.instrument_id
     }
 
     fn get_ts(&self) -> Timestamp {
@@ -476,8 +476,7 @@ impl TransactionCostModel {
         } else {
             fill.price * (1.0 - slippage)
         };
-        let cost = price * fill.filled_size * (1.0 + fee) - fill.price * fill.filled_size;
-        cost
+        price * fill.filled_size * (1.0 + fee) - fill.price * fill.filled_size
     }
 }
 

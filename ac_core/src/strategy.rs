@@ -64,9 +64,8 @@ where
     fn on_event(&mut self, broker_event: &BrokerEvent<D>) -> Vec<ClientEvent> {
         self.executor.update(broker_event);
         if let Some(data) = broker_event.to_data() {
-            let signal = self.signaler.on_data(&data);
-            let client_events = self.executor.on_signal(signal);
-            client_events
+            let signal = self.signaler.on_data(data);
+            self.executor.on_signal(signal)
         } else {
             vec![]
         }
