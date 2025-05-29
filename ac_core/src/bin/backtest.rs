@@ -18,10 +18,10 @@ async fn main() {
 
     let strategy_args = OfiMomentumArgs {
         instrument_id,
-        window_ofi: Duration::seconds(10),
+        window_ofi: Duration::seconds(30),
         window_ema: Duration::minutes(30),
-        holding_duration: Duration::seconds(30),
-        theta: 3.,
+        holding_duration: Duration::seconds(60),
+        theta: 4.,
         notional: 10_000.,
         size_digits: 2,
         order_id_offset: 0,
