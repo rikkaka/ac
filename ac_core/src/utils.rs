@@ -1,9 +1,5 @@
-use float_cmp::approx_eq;
-use rustc_hash::FxHashMap;
 
-use crate::{data::Bbo, ExecType, Fill, InstId, LimitOrder, MarketOrder, Position};
 
-use std::collections::VecDeque;
 
 /// A trait for items that carry a monotonically increasing timestamp.
 pub trait Timestamped {

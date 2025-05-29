@@ -107,7 +107,7 @@ where
             *this.is_waiting_pong = true;
             this.pong_timer.reset();
             // 将pong计时器注册到当前上下文
-            if let Poll::Ready(_) = this.pong_timer.poll_tick(cx) {
+            if this.pong_timer.poll_tick(cx).is_ready() {
                 tracing::error!("The duration of pong timer is zero");
                 return Poll::Ready(None);
             }
@@ -207,7 +207,7 @@ mod tests {
             assert!(matches!(hb.next().await, Some(Ok(ref m)) if *m == Message::text("1")));
             assert!(matches!(hb.next().await, Some(Ok(ref m)) if *m == Message::text("2")));
             assert!(matches!(hb.next().await, Some(Ok(ref m)) if *m == Message::text("3")));
-            assert!(matches!(hb.next().await, None));
+            assert!((hb.next().await).is_none());
         });
 
         // Server

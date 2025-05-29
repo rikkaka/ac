@@ -1,4 +1,4 @@
-use std::{sync::{atomic::{AtomicU64, Ordering}, Arc}, time::{Duration, Instant}};
+use std::{sync::{atomic::{AtomicU64, Ordering}, Arc}, time::Duration};
 
 use anyhow::Result;
 use data_center::{

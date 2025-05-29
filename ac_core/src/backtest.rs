@@ -178,7 +178,7 @@ where
             .limit_orders
             .iter()
             .filter_map(|(order_id, order)| {
-                MatchOrder::try_fill_limit_order(&self.inst_matcher, &order, ExecType::Maker)
+                MatchOrder::try_fill_limit_order(&self.inst_matcher, order, ExecType::Maker)
                     .map(|fill| (*order_id, fill))
             })
             .collect();
@@ -249,13 +249,13 @@ where
 
             let event = self.broker_events_buf.pop_front().unwrap();
 
-            return Poll::Ready(Some(event));
+            Poll::Ready(Some(event))
         } else {
             let total_value = self.get_total_value();
             let ts = self.ts;
             self.reporter.insert(ts, total_value);
             self.reporter.end();
-            return Poll::Ready(None);
+            Poll::Ready(None)
         }
     }
 }
@@ -281,7 +281,7 @@ pub trait MatchOrder: Sized {
     fn get_inst_market_price(inst_data: &FxHashMap<InstId, Self>) -> FxHashMap<InstId, f64> {
         inst_data
             .iter()
-            .map(|(id, data)| (id.clone(), data.market_price()))
+            .map(|(id, data)| (*id, data.market_price()))
             .collect()
     }
 }
@@ -344,7 +344,7 @@ impl MatchOrder for Bbo {
                 price: order.price,
                 filled_size: order.size,
                 acc_filled_size: order.size,
-                exec_type: exec_type,
+                exec_type,
                 state: FillState::Filled,
             };
             Some(fill)
@@ -482,9 +482,9 @@ impl TransactionCostModel {
 
 #[cfg(test)]
 mod tests {
-    use float_cmp::{approx_eq, assert_approx_eq};
+    use float_cmp::assert_approx_eq;
 
-    use crate::Position;
+    
 
     use super::*;
 
@@ -544,7 +544,7 @@ mod tests {
 
         fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             if self.index < self.data.len() {
-                let data = self.data[self.index].clone();
+                let data = self.data[self.index];
                 self.index += 1;
                 Poll::Ready(Some(data))
             } else {
@@ -599,7 +599,7 @@ mod tests {
                 assert_eq!(fill.order_id, 1);
                 assert_eq!(fill.price, 50001.0); // Should fill at ask price
                 assert_eq!(fill.filled_size, 1.0);
-                assert_eq!(fill.side, true);
+                assert!(fill.side);
                 assert_eq!(fill.exec_type, ExecType::Taker);
             }
             _ => panic!("Expected Fill event"),
@@ -644,7 +644,7 @@ mod tests {
                 assert_eq!(fill.order_id, 2);
                 assert_eq!(fill.price, 50001.0);
                 assert_eq!(fill.filled_size, 0.5);
-                assert_eq!(fill.side, true);
+                assert!(fill.side);
                 assert_eq!(fill.exec_type, ExecType::Taker);
             }
             _ => panic!("Expected Fill event"),

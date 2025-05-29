@@ -145,8 +145,8 @@ where
                 Either::Left(bbo) => {
                     let level1 = Level1 {
                         bbo,
-                        last_price: this.weighted_price.clone(),
-                        volume: this.volume.clone(),
+                        last_price: *this.weighted_price,
+                        volume: *this.volume,
                     };
                     *this.weighted_price = 0.;
                     *this.volume = 0.;

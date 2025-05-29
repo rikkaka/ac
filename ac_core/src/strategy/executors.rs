@@ -2,7 +2,7 @@ use chrono::Duration;
 use float_cmp::approx_eq;
 
 use crate::{
-    BrokerEvent, ClientEvent, InstId, LimitOrder, Order, Position, Timestamp, data::Bbo,
+    BrokerEvent, ClientEvent, InstId, LimitOrder, Position, Timestamp, data::Bbo,
     utils::truncate_f64,
 };
 
@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[0] {
             assert_eq!(order.instrument_id.as_str(), "TEST_INST");
-            assert_eq!(order.side, true); // Buy side
+            assert!(order.side); // Buy side
             assert_eq!(order.price, 100.0); // Should use bid price
             assert_eq!(order.size, 10.0); // 1000 / 100 = 10
         } else {
@@ -270,7 +270,7 @@ mod tests {
         assert_eq!(events.len(), 1);
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[0] {
             assert_eq!(order.instrument_id.as_str(), "TEST_INST");
-            assert_eq!(order.side, false); // Sell side
+            assert!(!order.side); // Sell side
             assert_eq!(order.price, 101.0); // Should use ask price
             assert_eq!(order.size, 9.90); // 1000 / 101 = 9.90 (truncated to 2 decimals)
         } else {
@@ -304,7 +304,7 @@ mod tests {
 
         // Check new order
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[1] {
-            assert_eq!(order.side, false); // Sell side
+            assert!(!order.side); // Sell side
             assert_eq!(order.price, 101.0); // Ask price
         } else {
             panic!("Expected PlaceOrder event with limit order");
@@ -349,7 +349,7 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[0] {
-            assert_eq!(order.side, false); // Sell side
+            assert!(!order.side); // Sell side
             assert_eq!(order.size, 19.90); // Position (10.0) + Short signal (9.90)
         } else {
             panic!("Expected PlaceOrder event with limit order");
@@ -443,7 +443,7 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[0] {
-            assert_eq!(order.side, false); // Sell side to close position
+            assert!(!order.side); // Sell side to close position
             assert_eq!(order.size, 10.0); // Close entire position
             assert_eq!(order.price, 103.0); // Use ask price for selling
         } else {
@@ -465,7 +465,7 @@ mod tests {
 
         let buy_order_id = match &events[0] {
             ClientEvent::PlaceOrder(Order::Limit(order)) => {
-                assert_eq!(order.side, true); // 确认是买单
+                assert!(order.side); // 确认是买单
                 assert_eq!(order.price, 100.0); // 买价
                 assert_eq!(order.size, 10.0); // 规模：1000/100=10
                 order.order_id
@@ -505,7 +505,7 @@ mod tests {
         // 获取新卖单ID
         let sell_order_id = match &events[1] {
             ClientEvent::PlaceOrder(Order::Limit(order)) => {
-                assert_eq!(order.side, false); // 确认是卖单
+                assert!(!order.side); // 确认是卖单
                 assert_eq!(order.price, 100.0); // 卖价
                 // 规模：原有持仓(4.0) + 新空头规模(1000/100=10.0) = 14.0
                 assert_eq!(order.size, 14.0);
@@ -554,7 +554,7 @@ mod tests {
 
         let close_order_id = match &events[0] {
             ClientEvent::PlaceOrder(Order::Limit(order)) => {
-                assert_eq!(order.side, true); // 买单平空仓
+                assert!(order.side); // 买单平空仓
                 assert_eq!(order.price, 97.0); // 买价
                 assert_eq!(order.size, 4.0); // 平掉全部-4.0持仓
                 order.order_id
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[0] {
-            assert_eq!(order.side, true);
+            assert!(order.side);
             assert_eq!(order.price, 96.0);
             assert_eq!(order.size, 10.41); // 1000/96=10.41666..., 保留2位小数
         } else {

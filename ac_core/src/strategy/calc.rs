@@ -1,4 +1,3 @@
-use crate::data::Bbo;
 
 pub struct Ema {
     /// The smoothing time constant (tau).
