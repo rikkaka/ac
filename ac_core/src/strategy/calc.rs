@@ -68,7 +68,6 @@ impl Emav {
     #[inline]
     pub fn update(&mut self, sample: f64, dt: f64) -> (f64, f64) {
         let alpha = 1.0 - (-dt / self.tau).exp();
-        dbg!(alpha);
         // Update mean
         let new_mean = match self.mean {
             Some(m) => m * (1.0 - alpha) + sample * alpha,
