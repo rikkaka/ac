@@ -25,8 +25,6 @@ pub struct OfiMomentum {
     first_ts: Option<Timestamp>,
 
     variables: Option<Variables>,
-
-    instrument_id: InstId,
 }
 
 struct Variables {
@@ -78,7 +76,7 @@ impl Variables {
         let var_ofi = self.eam_ofi.variance()?;
 
         let z_score = (ofi - mean_ofi) / var_ofi.sqrt();
-
+        dbg!(&z_score);
         if z_score > theta {
             Some(Signal::Long)
         } else if z_score < -theta {
@@ -90,7 +88,7 @@ impl Variables {
 }
 
 impl OfiMomentum {
-    pub fn new(instrument_id: InstId, window_ofi: Duration, window_ema: Duration, theta: f64) -> Self {
+    pub fn new(window_ofi: Duration, window_ema: Duration, theta: f64) -> Self {
         let window_ofi = window_ofi.num_milliseconds() as u64;
         let window_ema = window_ema.num_milliseconds() as u64;
         Self {
@@ -98,7 +96,6 @@ impl OfiMomentum {
             window_ema,
             theta,
             warm_up_duration: 3 * window_ofi.max(window_ema),
-            instrument_id,
             ..Default::default()
         }
     }
@@ -151,7 +148,7 @@ pub struct OfiMomentumArgs {
 
 impl OfiMomentumArgs {
     pub fn into_strategy(self) -> impl Strategy<Bbo> {
-        let ofi_momentum_signaler = OfiMomentum::new(self.instrument_id, self.window_ofi, self.window_ema, self.theta);
+        let ofi_momentum_signaler = OfiMomentum::new(self.window_ofi, self.window_ema, self.theta);
         let executor = NaiveLimitExecutor::new(self.instrument_id, self.notional, self.size_digits, self.holding_duration, self.order_id_offset);
         SignalExecuteStrategy::new(ofi_momentum_signaler, executor)
     }
