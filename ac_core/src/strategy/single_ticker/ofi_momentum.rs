@@ -74,7 +74,9 @@ impl Variables {
         let ofi = self.ofi.mean()?;
         dbg!(ofi);
         let mean_ofi = self.eam_ofi.mean()?;
+        dbg!(mean_ofi);
         let var_ofi = self.eam_ofi.variance()?;
+        dbg!(var_ofi);
 
         let z_score = (ofi - mean_ofi) / var_ofi.sqrt();
         dbg!(z_score);
