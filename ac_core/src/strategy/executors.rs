@@ -2,8 +2,7 @@ use chrono::Duration;
 use float_cmp::approx_eq;
 
 use crate::{
-    BrokerEvent, ClientEvent, InstId, LimitOrder, Position, Timestamp, data::Bbo,
-    utils::truncate_f64,
+    data::Bbo, utils::truncate_f64, BrokerEvent, ClientEvent, InstId, LimitOrder, Order, Position, Timestamp
 };
 
 use super::{Executor, Signal};
@@ -122,19 +121,19 @@ impl NaiveLimitExecutor {
             return vec![ClientEvent::CancelOrder(old_order_id)];
         }
 
-        let (new_side, _) = crate::utils::get_side_size_from_raw_size(raw_size);
+        let (new_side, new_size) = crate::utils::get_side_size_from_raw_size(raw_size);
         if new_side == old_order.side {
-            // // 方向匹配，订单规模或价格不匹配，则进行改单
-            // if !approx_eq!(
-            //     f64,
-            //     old_order.unfilled_size(),
-            //     new_size,
-            //     epsilon = self.size_eps
-            // ) || old_order.price != price
-            // {
-            //     let modified_order = old_order.modified(new_size, price);
-            //     return vec![ClientEvent::ModifyOrder(Order::Limit(modified_order))];
-            // }
+            // 方向匹配，订单规模或价格不匹配，则进行改单
+            if !approx_eq!(
+                f64,
+                old_order.unfilled_size(),
+                new_size,
+                epsilon = self.size_eps
+            ) || old_order.price != price
+            {
+                let modified_order = old_order.modified(new_size, price);
+                return vec![ClientEvent::ModifyOrder(Order::Limit(modified_order))];
+            }
 
             // 两个思路：1：在收到信号后，在信号改变前，维持最初的挂单，不改单；
             // 2：锚定最激进的限价单，持续改单。

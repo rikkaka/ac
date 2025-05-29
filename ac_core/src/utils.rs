@@ -1,12 +1,3 @@
-
-
-
-/// A trait for items that carry a monotonically increasing timestamp.
-pub trait Timestamped {
-    /// Returns the timestamp of the item.
-    fn ts(&self) -> i64;
-}
-
 /// 将f64阶段到小数点后第digits位
 pub fn truncate_f64(x: f64, digits: u32) -> f64 {
     let factor = 10f64.powi(digits as i32);
