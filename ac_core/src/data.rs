@@ -1,8 +1,10 @@
 pub mod okx;
 
+use chrono::{DateTime, Utc};
+use futures::{Stream, StreamExt};
 use rustc_hash::FxHashMap;
 
-use crate::{DrawMatcher, ExecType, Fill, InstId, LimitOrder, MarketOrder, MatchOrder, Order};
+use crate::{ExecType, Fill, InstId, LimitOrder, MarketOrder, Order};
 
 #[derive(Debug, Clone)]
 pub struct Trade {
@@ -22,78 +24,46 @@ pub struct Level {
 }
 
 /// "Best bid and offer"
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, Copy)]
 pub struct Bbo {
     /// Unix millis timestamp
-    pub ts: i64,
+    pub ts: u64,
     pub instrument_id: InstId,
-    pub best_ask: Level,
-    pub best_bid: Level,
+    pub bid_price: f64,
+    pub bid_size: f64,
+    pub ask_price: f64,
+    pub ask_size: f64
+}
+
+impl Bbo {
+    pub fn get_unbiased_price(&self) -> f64 {
+        (self.bid_price * self.ask_size + self.ask_price * self.bid_size) / (self.bid_size + self.ask_size)
+    }
+
+    pub fn get_spread(&self) -> f64 {
+        self.ask_price - self.bid_price
+    }
+
+    pub fn get_relevent_spread(&self) -> f64 {
+        self.get_spread() / self.get_unbiased_price()
+    }
 }
 
 impl From<data_center::types::Bbo> for Bbo {
     fn from(bbo: data_center::types::Bbo) -> Self {
         Self {
-            ts: bbo.ts,
+            ts: bbo.ts as u64,
             instrument_id: bbo.instrument_id,
-            best_ask: Level {
-                price: bbo.best_ask.price,
-                size: bbo.best_ask.size,
-                order_count: bbo.best_ask.order_count,
-            },
-            best_bid: Level {
-                price: bbo.best_bid.price,
-                size: bbo.best_bid.size,
-                order_count: bbo.best_bid.order_count,
-            },
+            bid_price: bbo.best_bid.price,
+            bid_size: bbo.best_bid.size,
+            ask_price: bbo.best_ask.price,
+            ask_size: bbo.best_ask.size
         }
     }
 }
 
-impl MatchOrder for Bbo {
-    fn fill_market_order(inst_bbo: &FxHashMap<InstId, Self>, order: &MarketOrder) -> Fill {
-        let bbo = inst_bbo.get(&order.instrument_id).unwrap();
-        let price = if order.side {
-            bbo.best_ask.price
-        } else {
-            bbo.best_bid.price
-        };
-        Fill {
-            order_id: order.order_id,
-            price,
-            size: order.size,
-            exec_type: ExecType::Taker,
-        }
-    }
-
-    fn try_fill_limit_order(
-        inst_bbo: &FxHashMap<InstId, Bbo>,
-        order: &LimitOrder,
-        exec_type: ExecType,
-    ) -> Option<Fill> {
-        let bbo = inst_bbo.get(&order.instrument_id).unwrap();
-        let price = if order.side && order.price >= bbo.best_ask.price {
-            Some(bbo.best_ask.price)
-        } else if !order.side && order.price <= bbo.best_bid.price {
-            Some(bbo.best_bid.price)
-        } else {
-            None
-        };
-        price.map(|price| Fill {
-            order_id: order.order_id,
-            price,
-            size: order.size,
-            exec_type: exec_type,
-        })
-    }
-
-    fn instrument_id(&self) -> InstId {
-        self.instrument_id.clone()
-    }
-}
-
-impl DrawMatcher<Bbo> for Bbo {
-    fn draw_matcher(self) -> Option<Bbo> {
-        Some(self)
-    }
+pub struct Level1 {
+    bbo: Bbo,
+    last_price: f64,
+    volume: f64,
 }

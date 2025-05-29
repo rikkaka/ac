@@ -15,7 +15,7 @@ use tokio_tungstenite::{
 };
 use types::{Data, Push};
 
-use crate::{delegate_sink, utils::{Duplex, Heartbeat}};
+use crate::{delegate_sink, types::InstId, utils::{Duplex, Heartbeat}};
 
 const PUBLIC_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
 const PRIVATE_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/private";
@@ -52,7 +52,7 @@ where
     inner: S,
 }
 
-pub async fn connect(endpoint: OkxWsEndpoint) -> Result<impl Duplex<Message, tungstenite::Error, (InstrumentId, Data)>> {
+pub async fn connect(endpoint: OkxWsEndpoint) -> Result<impl Duplex<Message, tungstenite::Error, (InstId, Data)>> {
     let (ws_stream, _) = connect_async(endpoint.url()).await?;
     let ws_stream = with_heartbeat(ws_stream);
     Ok(OkxWsStream { inner: ws_stream })
@@ -67,13 +67,12 @@ where
     delegate_sink!(inner, Message);
 }
 
-type InstrumentId = String;
 impl<S> Stream for OkxWsStream<S>
 where 
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>
 {
     /// 返回 (instrument_id, data)
-    type Item = (InstrumentId, Data);
+    type Item = (InstId, Data);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();

@@ -2,6 +2,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 use futures::{Sink, Stream};
+use pin_project::pin_project;
+use std::marker::PhantomData;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 use tokio::time::sleep;
 use tracing_appender::rolling;
 use tracing_subscriber::{EnvFilter, prelude::*};
@@ -53,3 +57,94 @@ where
 
 pub trait Duplex<I, IE, O>: Sink<I, Error = IE> + Stream<Item = O> + Unpin {}
 impl<T, I, IE, O> Duplex<I, IE, O> for T where T: Sink<I, Error = IE> + Stream<Item = O> + Unpin {}
+
+pub trait Timestamped {
+    fn get_ts(&self) -> i64;
+}
+
+///合并两个实现Timestamped的Stream并按ts顺序发出。ts相等时优先stream1。
+#[pin_project]
+pub struct TsStreamMerger<S1, S2, T1, T2, T> {
+    #[pin]
+    stream1: S1,
+    #[pin]
+    stream2: S2,
+    buffer1: Option<T1>,
+    buffer2: Option<T2>,
+    stream1_ended: bool,
+    stream2_ended: bool,
+    _marker: PhantomData<T>,
+}
+
+impl<S1, S2, T1, T2, T> TsStreamMerger<S1, S2, T1, T2, T>
+where
+    S1: Stream<Item = T1>,
+    S2: Stream<Item = T2>,
+    T1: Timestamped,
+    T2: Timestamped,
+    T: From<T1> + From<T2>,
+{
+    pub fn new(stream1: S1, stream2: S2) -> Self {
+        Self {
+            stream1,
+            stream2,
+            buffer1: None,
+            buffer2: None,
+            stream1_ended: false,
+            stream2_ended: false,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<S1, S2, T1, T2, T> Stream for TsStreamMerger<S1, S2, T1, T2, T>
+where
+    S1: Stream<Item = T1>,
+    S2: Stream<Item = T2>,
+    T1: Timestamped,
+    T2: Timestamped,
+    T: From<T1> + From<T2>,
+{
+    type Item = T;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.project();
+        // Try to get an item from stream1 if we don't have one cached and stream hasn't ended
+        if this.buffer1.is_none() && !*this.stream1_ended {
+            match this.stream1.poll_next(cx) {
+                Poll::Ready(Some(item)) => *this.buffer1 = Some(item),
+                Poll::Ready(None) => *this.stream1_ended = true,
+                Poll::Pending => return Poll::Pending
+            }
+        }
+
+        // Try to get an item from stream2 if we don't have one cached and stream hasn't ended
+        if this.buffer2.is_none() && !*this.stream2_ended {
+            match this.stream2.poll_next(cx) {
+                Poll::Ready(Some(item)) => *this.buffer2 = Some(item),
+                Poll::Ready(None) => *this.stream2_ended = true,
+                Poll::Pending => return Poll::Pending
+            }
+        }
+
+        // Compare timestamps and return items in order
+        match (&this.buffer1, &this.buffer2) {
+            (Some(item1), Some(item2)) => {
+                if item1.get_ts() <= item2.get_ts() {
+                    Poll::Ready(Some(T::from(this.buffer1.take().unwrap())))
+                } else {
+                    Poll::Ready(Some(T::from(this.buffer2.take().unwrap())))
+                }
+            }
+            (Some(_), None) => Poll::Ready(Some(T::from(this.buffer1.take().unwrap()))),
+            (None, Some(_)) => Poll::Ready(Some(T::from(this.buffer2.take().unwrap()))),
+            (None, None) => {
+                if *this.stream1_ended && *this.stream2_ended {
+                    Poll::Ready(None)
+                } else {
+                    Poll::Pending
+                }
+            }
+        }
+    }
+}

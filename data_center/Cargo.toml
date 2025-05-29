@@ -5,10 +5,12 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.98"
+arrayvec = { version = "0.7.6", features = ["serde"] }
 async-stream = "0.3.6"
 chrono = "0.4.41"
 derive-new = "0.7.0"
 dotenvy = "0.15.7"
+either = "1.15.0"
 futures = "0.3.31"
 futures-util = { version = "0.3.31", default-features = false, features = ["sink"] }
 lazy_static = "1.5.0"

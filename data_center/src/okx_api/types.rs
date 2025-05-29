@@ -2,12 +2,12 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::types::{Bbo, Level, Trade};
+use crate::types::{Bbo, InstId, Level, Trade};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Arg {
     pub channel: String,
-    pub instId: String,
+    pub instId: InstId,
 }
 
 #[derive(Debug, Deserialize)]
@@ -20,7 +20,7 @@ pub struct Push<'a> {
 
 #[derive(Debug, Deserialize)]
 pub struct TradesData {
-    pub instId: String,
+    pub instId: InstId,
     pub tradeId: String,
     pub px: String,
     pub sz: String,
@@ -69,7 +69,7 @@ impl TradesData {
 }
 
 impl DepthData {
-    pub fn try_into_bbo(self, instrument_id: String) -> Result<Bbo> {
+    pub fn try_into_bbo(self, instrument_id: InstId) -> Result<Bbo> {
         let ts = self.ts.parse::<i64>()?;
         let best_ask = Level {
             price: self.asks[0][0].parse::<f64>()?,
