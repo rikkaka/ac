@@ -20,8 +20,8 @@ impl Ema {
 
     /// Update with a new sample at time interval dt.
     /// Returns a tuple (mean, variance).
+    #[inline]
     pub fn update(&mut self, sample: f64, dt: f64) -> f64 {
-        assert!(dt >= 0.0, "dt must be non-negative");
         let alpha = 1.0 - (-dt / self.tau).exp();
         // Update mean
         let new_mean = match self.mean {
@@ -65,9 +65,10 @@ impl Emav {
 
     /// Update with a new sample at time interval dt.
     /// Returns a tuple (mean, variance).
+    #[inline]
     pub fn update(&mut self, sample: f64, dt: f64) -> (f64, f64) {
-        assert!(dt >= 0.0, "dt must be non-negative");
         let alpha = 1.0 - (-dt / self.tau).exp();
+        dbg!(alpha);
         // Update mean
         let new_mean = match self.mean {
             Some(m) => m * (1.0 - alpha) + sample * alpha,
@@ -76,8 +77,8 @@ impl Emav {
         self.mean = Some(new_mean);
         // Update mean of squares
         let new_mean_sq = match self.mean_sq {
-            Some(msq) => msq * (1.0 - alpha) + sample * sample * alpha,
-            None => sample * sample,
+            Some(msq) => msq * (1.0 - alpha) + sample.powi(2) * alpha,
+            None => sample.powi(2),
         };
         self.mean_sq = Some(new_mean_sq);
         // Compute variance = E[x²] - E[x]² (floored at zero)

@@ -29,7 +29,6 @@ pub struct OfiMomentum {
 
 struct Variables {
     bbo: Bbo,
-    ofi_segment: f64,
     /// EMA of ofi
     ofi: Ema,
     /// EMA of the EMA of ofi
@@ -37,15 +36,15 @@ struct Variables {
 }
 
 impl Variables {
-    fn new(bbo: Bbo, window_ema_ofi: u64, window_ema_ema_ofi: u64) -> Self {
+    fn new(bbo: Bbo, window_ofi: u64, window_ema_ofi: u64) -> Self {
         Self {
             bbo,
-            ofi_segment: f64::NAN,
-            ofi: Ema::new(window_ema_ofi as f64),
-            eam_ofi: Emav::new(window_ema_ema_ofi as f64),
+            ofi: Ema::new(window_ofi as f64),
+            eam_ofi: Emav::new(window_ema_ofi as f64),
         }
     }
 
+    #[inline]
     fn update(&mut self, bbo: &Bbo) {
         let mut ofi_segment = 0.;
         let old_bbo = &self.bbo;
@@ -61,7 +60,6 @@ impl Variables {
         if bbo.ask_price >= old_bbo.ask_price {
             ofi_segment += old_bbo.ask_size
         }
-        self.ofi_segment = ofi_segment;
 
         let dt = bbo.ts - old_bbo.ts;
         self.ofi.update(ofi_segment, dt as f64);
@@ -70,6 +68,7 @@ impl Variables {
     }
 
     /// 计算ema_ofi的z-score
+    #[inline]
     fn get_signal(&self, theta: f64) -> Option<Signal> {
         let ofi = self.ofi.mean()?;
         dbg!(ofi);
@@ -105,6 +104,7 @@ impl OfiMomentum {
 }
 
 impl Signaler<Bbo> for OfiMomentum {
+    #[inline]
     fn on_data(&mut self, bbo: &Bbo) -> Option<Signal> {
         // Initialize first timestamp
         if self.first_ts.is_none() {
