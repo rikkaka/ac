@@ -14,12 +14,12 @@ async fn main() {
     let instrument_id = ArrayString::try_from("ETH-USDT-SWAP").unwrap();
     let instruments = vec![instrument_id];
 
-    let data_provider = get_bbo_history_provider(instruments.clone(), Duration::hours(12));
+    let data_provider = get_bbo_history_provider(instruments.clone(), Duration::hours(240));
 
     let strategy_args = OfiMomentumArgs {
         instrument_id,
-        window_ofi: Duration::minutes(1),
-        window_ema: Duration::minutes(10),
+        window_ofi: Duration::seconds(10),
+        window_ema: Duration::minutes(30),
         holding_duration: Duration::seconds(30),
         theta: 3.,
         notional: 10_000.,
