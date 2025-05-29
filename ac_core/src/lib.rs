@@ -1,6 +1,6 @@
-mod backtest;
-mod data;
-mod strategy;
+pub mod backtest;
+pub mod data;
+pub mod strategy;
 mod utils;
 
 use std::marker::PhantomData;
@@ -299,6 +299,14 @@ where
             let client_events = self.strategy.on_event(&broker_event);
             self.broker.on_client_events(client_events.into_iter());
         }
+    }
+
+    pub fn broker(&self) -> &B {
+        &self.broker
+    }
+
+    pub fn strategy(&self) -> &S {
+        &self.strategy
     }
 }
 

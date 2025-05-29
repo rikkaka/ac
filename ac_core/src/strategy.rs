@@ -6,7 +6,7 @@ use crate::{
 
 mod calc;
 mod executors;
-mod single_ticker;
+pub mod single_ticker;
 
 /// D: type for the data
 pub trait Strategy<D> {

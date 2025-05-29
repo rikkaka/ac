@@ -4,10 +4,7 @@
 //! A strategy receives data and returns orders. Thus this mod need to simulate
 //! an environment where the results of the sequence of orders can be evaluated.
 use std::{
-    collections::VecDeque,
-    fmt::Debug,
-    pin::Pin,
-    task::{Context, Poll},
+    collections::VecDeque, fmt::Debug, path::Path, pin::Pin, task::{Context, Poll}
 };
 
 use anyhow::Result;
@@ -80,6 +77,10 @@ where
         }
     }
 
+    pub fn reporter(&self) -> &Reporter {
+        &self.reporter
+    }
+
     fn on_fill(&mut self, fill: &Fill) {
         let cost = self.transaction_cost_model.calculate_cost(fill);
         self.cash -= cost;
@@ -123,8 +124,6 @@ where
 
     pub fn get_total_value(&self) -> f64 {
         let inst_price = M::get_inst_market_price(&self.inst_matcher);
-        dbg!(&inst_price);
-        dbg!(&self.cash);
         self.portfolio.get_value(&inst_price) + self.cash
     }
 }
@@ -392,7 +391,7 @@ impl Reporter {
         self.pub_buf_record();
     }
 
-    pub fn to_csv(&self, path: &str) -> Result<()> {
+    pub fn to_csv(&self, path: &Path) -> Result<()> {
         let mut writer = csv::Writer::from_path(path)?;
         for record in &self.value_history {
             writer.serialize(record)?;

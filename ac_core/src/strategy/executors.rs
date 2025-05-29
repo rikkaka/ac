@@ -93,7 +93,6 @@ impl NaiveLimitExecutor {
     }
 
     fn gen_order(&mut self, raw_size: f64, price: f64) -> Option<LimitOrder> {
-        dbg!(raw_size);
         if approx_eq!(f64, raw_size, 0., epsilon = self.size_eps) {
             return None;
         }

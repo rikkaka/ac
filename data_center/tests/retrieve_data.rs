@@ -9,7 +9,7 @@ use futures::{StreamExt, pin_mut};
 async fn test_retrieve_bbo() {
     let query_option = QueryOption {
         instruments: vec!["ETH-USDT-SWAP".try_into().unwrap()],
-        start: Some(Utc::now() - Duration::seconds(10)),
+        start: Some(Utc::now() - Duration::hours(12)),
         end: None,
     };
     let bbo_stream = query_bbo(query_option);
@@ -17,6 +17,10 @@ async fn test_retrieve_bbo() {
     pin_mut!(bbo_stream);
     let data = bbo_stream.next().await;
     assert!(dbg!(data).is_some());
+
+    while let Some(data) = bbo_stream.next().await {
+        
+    }
 }
 
 #[tokio::test]

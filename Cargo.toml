@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["data_center", "ac_core", "utils"]
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
