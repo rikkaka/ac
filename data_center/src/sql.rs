@@ -11,13 +11,6 @@ use utils::TsStreamMerger;
 
 use crate::types::{Bbo, InstId, Level1, Level1Stream, Trade};
 
-#[derive(Default,Clone)]
-pub struct QueryOption {
-    pub instruments: Vec<InstId>,
-    pub start: Option<DateTime<Utc>>,
-    pub end: Option<DateTime<Utc>>,
-}
-
 lazy_static! {
     static ref POOL: PgPool = {
         let pg_host = dotenvy::var("PG_HOST")
@@ -27,6 +20,13 @@ lazy_static! {
             .connect_lazy(&pg_host)
             .unwrap()
     };
+}
+
+#[derive(Default,Clone)]
+pub struct QueryOption {
+    pub instruments: Vec<InstId>,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
 }
 
 pub async fn insert_trade(trade: &Trade) -> Result<()> {
@@ -137,7 +137,7 @@ pub fn query_bbo(query_option: QueryOption) -> impl Stream<Item = Bbo> + Send {
         while let Some(row) = rows.next().await {
             match row {
                 Ok(row) => yield row,
-                Err(e) => tracing::error!("Error fetching BBO: {:?}", e),
+                Err(e) => println!("Error fetching BBO: {:?}", e),
             }
         }
     }
