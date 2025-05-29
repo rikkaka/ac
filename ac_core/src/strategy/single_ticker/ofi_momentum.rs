@@ -77,9 +77,9 @@ impl Variables {
 
         let z_score = (ofi - mean_ofi) / var_ofi.sqrt();
         if z_score > theta {
-            Some(Signal::Long)
-        } else if z_score < -theta {
             Some(Signal::Short)
+        } else if z_score < -theta {
+            Some(Signal::Long)
         } else {
             None
         }

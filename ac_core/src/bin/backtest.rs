@@ -21,8 +21,8 @@ async fn main() {
         window_ofi: Duration::seconds(30),
         window_ema: Duration::minutes(30),
         holding_duration: Duration::seconds(60),
-        theta: 4.,
-        notional: 10_000.,
+        theta: 3.,
+        notional: 100_000.,
         size_digits: 2,
         order_id_offset: 0,
     };
