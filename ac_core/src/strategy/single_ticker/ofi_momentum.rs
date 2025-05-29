@@ -72,11 +72,12 @@ impl Variables {
     /// 计算ema_ofi的z-score
     fn get_signal(&self, theta: f64) -> Option<Signal> {
         let ofi = self.ofi.mean()?;
+        dbg!(ofi);
         let mean_ofi = self.eam_ofi.mean()?;
         let var_ofi = self.eam_ofi.variance()?;
 
         let z_score = (ofi - mean_ofi) / var_ofi.sqrt();
-        dbg!(&z_score);
+        dbg!(z_score);
         if z_score > theta {
             Some(Signal::Long)
         } else if z_score < -theta {
