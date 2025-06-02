@@ -35,7 +35,8 @@ pub async fn insert_trade(trade: &Trade) -> Result<()> {
     sqlx::query!(
         "INSERT INTO okx_trades 
         (ts, instrument_id, trade_id, price, size, side, order_count)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT DO NOTHING",
         trade.ts,
         trade.instrument_id.as_str(),
         trade.trade_id,
@@ -43,6 +44,27 @@ pub async fn insert_trade(trade: &Trade) -> Result<()> {
         trade.size,
         trade.side,
         trade.order_count
+    )
+    .execute(&*POOL)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn insert_bbo(bbo: &Bbo) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO okx_bbo 
+        (ts, instrument_id, price_ask, size_ask, order_count_ask, price_bid, size_bid, order_count_bid)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT DO NOTHING",
+        bbo.ts,
+        bbo.instrument_id.as_str(),
+        bbo.best_ask.price,
+        bbo.best_ask.size,
+        bbo.best_ask.order_count,
+        bbo.best_bid.price,
+        bbo.best_bid.size,
+        bbo.best_bid.order_count
     )
     .execute(&*POOL)
     .await?;
@@ -87,26 +109,6 @@ pub fn query_trade(query_option: QueryOption) -> impl Stream<Item = Trade> + Sen
             }
         }
     }
-}
-
-pub async fn insert_bbo(bbo: &Bbo) -> Result<()> {
-    sqlx::query!(
-        "INSERT INTO okx_bbo 
-        (ts, instrument_id, price_ask, size_ask, order_count_ask, price_bid, size_bid, order_count_bid)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-        bbo.ts,
-        bbo.instrument_id.as_str(),
-        bbo.best_ask.price,
-        bbo.best_ask.size,
-        bbo.best_ask.order_count,
-        bbo.best_bid.price,
-        bbo.best_bid.size,
-        bbo.best_bid.order_count
-    )
-    .execute(&*POOL)
-    .await?;
-
-    Ok(())
 }
 
 pub fn query_bbo(query_option: QueryOption) -> impl Stream<Item = Bbo> + Send {
