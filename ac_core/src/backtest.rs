@@ -4,7 +4,11 @@
 //! A strategy receives data and returns orders. Thus this mod need to simulate
 //! an environment where the results of the sequence of orders can be evaluated.
 use std::{
-    collections::VecDeque, fmt::Debug, path::Path, pin::Pin, task::{Context, Poll}
+    collections::VecDeque,
+    fmt::Debug,
+    path::Path,
+    pin::Pin,
+    task::{Context, Poll},
 };
 
 use anyhow::Result;
@@ -13,10 +17,11 @@ use futures::{Sink, Stream, StreamExt, ready};
 use pin_project::pin_project;
 use rustc_hash::FxHashMap;
 use serde::Serialize;
+use statrs::statistics::Statistics;
 
 use crate::{
     Broker, BrokerEvent, ClientEvent, DataProvider, ExecType, Fill, FillState, InstId, LimitOrder,
-    MarketOrder, Order, OrderId, Portfolio, Timestamp, data::Bbo, strategy::Strategy,
+    MarketOrder, Order, OrderId, Portfolio, Timestamp, data::Bbo,
 };
 
 #[pin_project]
@@ -93,6 +98,7 @@ where
         self.portfolio.update(fill);
         let total_value = self.get_total_value();
         self.reporter.insert(self.ts, total_value);
+        dbg!(fill);
     }
 
     pub fn on_data(&mut self, new_data: D) {
@@ -295,6 +301,17 @@ impl MatchOrder for Bbo {
         exec_type: ExecType,
     ) -> Option<Fill> {
         let bbo = inst_bbo.get(&order.instrument_id).unwrap();
+
+        // 若是Maker，成交会是挂单价；若是Taker，成交价会是最优买卖价
+        let price = if exec_type == ExecType::Maker {
+            order.price
+        } else {
+            if order.side {
+                bbo.ask_price
+            } else {
+                bbo.bid_price
+            }
+        };
         // 若买单的价格高于最优卖单
         if (order.side && order.price >= bbo.ask_price)
         // 或卖单的价格低于最优买单
@@ -304,7 +321,7 @@ impl MatchOrder for Bbo {
                 order_id: order.order_id,
                 instrument_id: order.instrument_id,
                 side: order.side,
-                price: order.price,
+                price,
                 filled_size: order.size,
                 acc_filled_size: order.size,
                 exec_type,
@@ -399,6 +416,26 @@ impl Reporter {
         writer.flush()?;
         Ok(())
     }
+
+    pub fn last_value(&self) -> Option<f64> {
+        self.value_history.last().map(|record| record.value)
+    }
+
+    pub fn sharpe_ratio(&self) -> f64 {
+        let returns: Vec<f64> = self
+            .value_history
+            .windows(2)
+            .map(|window| {
+                let prev_value = window[0].value;
+                let curr_value = window[1].value;
+                (curr_value - prev_value) / prev_value
+            })
+            .collect();
+
+        let mean_return = returns.iter().mean();
+        let std_dev = returns.iter().std_dev();
+        mean_return / std_dev
+    }
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize)]
@@ -432,7 +469,7 @@ impl TransactionCostModel {
         Self {
             maker_fee: 0.0002,
             taker_fee: 0.0005,
-            slippage
+            slippage,
         }
     }
 

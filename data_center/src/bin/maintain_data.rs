@@ -2,7 +2,7 @@ use std::{sync::{atomic::{AtomicU64, Ordering}, Arc}, time::Duration};
 
 use anyhow::Result;
 use data_center::{
-    okx_api::{self, subscribe, types::Data, OkxWsEndpoint},
+    okx_api::{self, types::Data, OkxWsEndpoint, SubscribeArg},
     sql, 
 };
 use futures_util::StreamExt;
@@ -17,11 +17,19 @@ async fn main() {
 }
 
 async fn main_task() -> Result<()> {
-    let mut okx_ws = okx_api::connect(OkxWsEndpoint::Public).await?;
+    let mut subscribe_args = vec![];
     for inst_id in INSTRUMENTS {
-        subscribe(&mut okx_ws, "trades", inst_id).await?;
-        subscribe(&mut okx_ws, "bbo-tbt", inst_id).await?;
+        subscribe_args.push(SubscribeArg {
+            channel: "trades",
+            instId: inst_id
+        });
+        subscribe_args.push(SubscribeArg {
+            channel: "bbo-tbt",
+            instId: inst_id
+        })
     }
+    let mut okx_ws = okx_api::connect(OkxWsEndpoint::Public, subscribe_args).await?;
+    
     let last_data_ts = Arc::new(AtomicU64::new(0));
 
     while let Some((instrument_id, data)) = okx_ws.next().await {

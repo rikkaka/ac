@@ -225,8 +225,8 @@ impl Position {
         }
     }
 
-    pub fn is_clear(&self, size_digits: u32) -> bool {
-        let eps = 10f64.powi(-(size_digits as i32));
+    pub fn is_clear(&self, size_digits: i32) -> bool {
+        let eps = 10f64.powi(-size_digits);
         approx_eq!(f64, 0., self.size, epsilon = eps)
     }
 

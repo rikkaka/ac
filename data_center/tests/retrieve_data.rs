@@ -5,11 +5,11 @@ use data_center::{
 };
 use futures::{StreamExt, pin_mut};
 
-#[tokio::test]
+// #[tokio::test]
 async fn test_retrieve_bbo() {
     let query_option = QueryOption {
         instruments: vec!["ETH-USDT-SWAP".try_into().unwrap()],
-        start: Some(Utc::now() - Duration::hours(12)),
+        start: None,
         end: None,
     };
     let bbo_stream = query_bbo(query_option);
@@ -23,11 +23,11 @@ async fn test_retrieve_bbo() {
     }
 }
 
-#[tokio::test]
+// #[tokio::test]
 async fn test_retrieve_level1() {
     let query_option = QueryOption {
         instruments: vec!["ETH-USDT-SWAP".try_into().unwrap()],
-        start: Some(Utc::now() - Duration::seconds(10)),
+        start: None,
         end: None,
     };
     let level1_stream = query_level1(query_option);

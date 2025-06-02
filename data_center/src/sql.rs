@@ -1,8 +1,10 @@
+use std::env;
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use either::Either;
 use futures::{Stream, StreamExt};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use sqlx::{
     Postgres,
     postgres::{PgPool, PgPoolOptions},
@@ -11,18 +13,18 @@ use utils::TsStreamMerger;
 
 use crate::types::{Bbo, InstId, Level1, Level1Stream, Trade};
 
-lazy_static! {
-    static ref POOL: PgPool = {
-        let pg_host = dotenvy::var("PG_HOST")
-            .expect("Please set PG_HOST in the .env or the environment variables");
-        PgPoolOptions::new()
-            .max_connections(50)
-            .connect_lazy(&pg_host)
-            .unwrap()
-    };
-}
+pub static POOL: Lazy<PgPool> = Lazy::new(|| {
+    dotenvy::dotenv_override()
+        .expect("Please set PG_HOST in the .env or the environment variables");
+    let pg_host =
+        env::var("PG_HOST").expect("Please set PG_HOST in the .env or the environment variables");
+    PgPoolOptions::new()
+        .max_connections(50)
+        .connect_lazy(&pg_host)
+        .unwrap()
+});
 
-#[derive(Default,Clone)]
+#[derive(Default, Clone)]
 pub struct QueryOption {
     pub instruments: Vec<InstId>,
     pub start: Option<DateTime<Utc>>,

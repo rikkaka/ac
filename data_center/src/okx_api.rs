@@ -10,20 +10,23 @@ use futures_util::SinkExt;
 use pin_project::pin_project;
 use serde_json::json;
 use tokio_tungstenite::{
-    WebSocketStream, connect_async,
+    connect_async,
     tungstenite::{self, Message},
 };
 use types::{Data, Push};
 
-use crate::{delegate_sink, types::InstId, utils::{Duplex, Heartbeat}};
+use crate::{
+    delegate_sink,
+    types::InstId,
+    utils::{AutoReconnect, Duplex, Heartbeat},
+};
 
 const PUBLIC_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
 const PRIVATE_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/private";
 const PUBLIC_WS_URL_SIMU: &str = "wss://wspap.okx.com:8443/ws/v5/public";
 const PRIVATE_WS_URL_SIMU: &str = "wss://wspap.okx.com:8443/ws/v5/private";
 
-type WsStream = WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
-
+#[derive(Clone, Copy)]
 pub enum OkxWsEndpoint {
     Public,
     Private,
@@ -42,9 +45,15 @@ impl OkxWsEndpoint {
     }
 }
 
+#[derive(Clone)]
+pub struct SubscribeArg<'a> {
+    pub channel: &'a str,
+    pub instId: &'a str
+}
+
 #[pin_project]
 pub struct OkxWsStream<S>
-where 
+where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
     /// WebSocket 流
@@ -52,14 +61,27 @@ where
     inner: S,
 }
 
-pub async fn connect(endpoint: OkxWsEndpoint) -> Result<impl Duplex<Message, tungstenite::Error, (InstId, Data)>> {
-    let (ws_stream, _) = connect_async(endpoint.url()).await?;
-    let ws_stream = with_heartbeat(ws_stream);
-    Ok(OkxWsStream { inner: ws_stream })
+pub async fn connect(
+    endpoint: OkxWsEndpoint,
+    subscribe_args: Vec<SubscribeArg<'static>>
+) -> Result<impl Duplex<Message, tungstenite::Error, (InstId, Data)>> {
+    let make_connection = move || {
+        let subscribe_args = subscribe_args.clone();
+        async move {
+            let (ws_stream, _) = connect_async(endpoint.url()).await?;
+            let mut ws_stream = with_heartbeat(ws_stream);
+            subscribe(&mut ws_stream, &subscribe_args).await?;
+            Ok::<_, anyhow::Error>(OkxWsStream { inner: ws_stream })
+        }
+    };
+
+    let ws_stream = AutoReconnect::new(make_connection).await?;
+    let ws_stream = Box::pin(ws_stream);
+    Ok(ws_stream)
 }
 
 impl<S> Sink<Message> for OkxWsStream<S>
-where 
+where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
     type Error = tungstenite::Error;
@@ -68,8 +90,8 @@ where
 }
 
 impl<S> Stream for OkxWsStream<S>
-where 
-    S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>
+where
+    S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
     /// 返回 (instrument_id, data)
     type Item = (InstId, Data);
@@ -133,30 +155,33 @@ where
     }
 }
 
-pub async fn subscribe<S>(ws_sink: &mut S, channel: &str, instrument_id: &str) -> Result<()>
+pub async fn subscribe<S>(ws_sink: &mut S, args: &Vec<SubscribeArg<'_>>) -> Result<()>
 where
     S: Sink<Message> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
-{
-    let param = json!({
-        "op": "subscribe",
-        "args": [{
-            "channel": channel,
-            "instId": instrument_id
-        }]
-    })
-    .to_string();
-    ws_sink.send(param.into()).await?;
+{   
+    for arg in args {
+        let param = json!({
+            "op": "subscribe",
+            "args": [{
+                "channel": arg.channel,
+                "instId": arg.instId
+            }]
+        })
+        .to_string();
+        ws_sink.send(param.into()).await?;
+    }
 
     Ok(())
 }
 
-pub fn with_heartbeat<S>(
-    ws_stream: S,
-) -> Heartbeat<S>
+pub fn with_heartbeat<S>(ws_stream: S) -> Heartbeat<S>
 where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>> + Unpin,
 {
-    Heartbeat::new(ws_stream, Duration::from_secs(1), Duration::from_millis(200))
+    Heartbeat::new(
+        ws_stream,
+        Duration::from_millis(500),
+        Duration::from_millis(100),
+    )
 }
-

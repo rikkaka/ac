@@ -2,22 +2,27 @@ use chrono::Duration;
 use float_cmp::approx_eq;
 
 use crate::{
-    data::Bbo, utils::truncate_f64, BrokerEvent, ClientEvent, InstId, LimitOrder, Order, Position, Timestamp
+    data::Bbo, utils::{round_f64, truncate_f64}, BrokerEvent, ClientEvent, InstId, LimitOrder, Order, Position, Timestamp
 };
 
 use super::{Executor, Signal};
 
 // 生成订单的逻辑：先计算期望的持仓，再与当前的持仓相减，得到所需的订单。与当前的挂单进行对比，判断维持/改单/取消
 
-/// A naive limit order executor based on bbo. 根据信号尝试建仓。若为多头信号，则在最优买价挂限价单。若在给定时间内未成交，则取消订单。
+/// A naive limit order executor based on bbo. 根据信号尝试建仓。若为多头信号，则在 最优买价 + price_offset 挂限价单。若在给定时间内未成交，则取消订单。
 /// 若在成交前信号转为空头，则取消并反向挂空单。若距离最后一次信号的时长到达给定值，挂单平仓。
 #[derive(Default)]
 pub struct NaiveLimitExecutor {
     instrument_id: InstId,
     notional: f64,
     /// The digits of the size
-    size_digits: u32,
+    size_digits: i32,
     size_eps: f64,
+    price_digits: i32,
+    /// 下单的名义金额门槛
+    notional_threshold: f64,
+    /// 挂单价格朝激进方向的偏移量
+    price_offset: f64,
 
     bbo: Bbo,
 
@@ -26,6 +31,10 @@ pub struct NaiveLimitExecutor {
     last_signal_ts: Timestamp,
     /// 信号消失后继续持有的时长
     holding_duration: Timestamp,
+
+    last_event_ts: Timestamp,
+    /// 发出事件的最小时间间隔，避免频繁发出事件
+    event_interval: Timestamp,
 
     position: Position,
     placed_order: Option<LimitOrder>,
@@ -39,17 +48,23 @@ impl NaiveLimitExecutor {
     pub fn new(
         instrument_id: InstId,
         notional: f64,
-        size_digits: u32,
+        size_digits: i32,
+        price_digits: i32,
+        price_offset: f64,
         holding_duration: Duration,
+        event_interval: Duration,
         order_id_offset: u64,
     ) -> Self {
-        let holding_duration = holding_duration.num_milliseconds() as u64;
         Self {
             instrument_id,
             notional,
             size_digits,
             size_eps: 10f64.powi(-(size_digits as i32)),
-            holding_duration,
+            notional_threshold: 0.05 * notional,
+            price_offset,
+            price_digits,
+            holding_duration: holding_duration.num_milliseconds() as u64,
+            event_interval: event_interval.num_milliseconds() as u64,
             order_id_offset,
             ..Default::default()
         }
@@ -94,6 +109,9 @@ impl NaiveLimitExecutor {
     fn gen_order(&mut self, raw_size: f64, price: f64) -> Option<LimitOrder> {
         if approx_eq!(f64, raw_size, 0., epsilon = self.size_eps) {
             return None;
+        }
+        if raw_size.abs() * price < self.notional_threshold {
+            return None
         }
         let order = LimitOrder::from_raw_size(
             raw_size,
@@ -154,10 +172,11 @@ impl NaiveLimitExecutor {
     fn calc_target_order_arg(&self, target_position: Position) -> (f64, f64) {
         let target_order_size = target_position.size - self.position.size;
         let price = if target_order_size > 0. {
-            self.bbo.bid_price
+            self.bbo.bid_price + self.price_offset
         } else {
-            self.bbo.ask_price
+            self.bbo.ask_price - self.price_offset
         };
+        let price = round_f64(price, self.price_digits);
         (target_order_size, price)
     }
 }
@@ -174,10 +193,15 @@ impl Executor<Bbo> for NaiveLimitExecutor {
     }
 
     fn on_signal(&mut self, signal: Option<Signal>) -> Vec<ClientEvent> {
-        // 在第1种策略下，若signal维持long或维持short，将不会采取任何行动，早停
-        if signal.is_some() && signal == self.last_signal {
+        // // 信号未改变时，早停
+        // if signal.is_some() && self.last_signal == signal {
+        //     return vec![];
+        // }
+
+        if self.bbo.ts - self.last_event_ts < self.event_interval {
             return vec![]
         }
+
         // 根据信号，获取目标仓位
         let ideal_position: Position = self.get_ideal_position(signal);
         // 根据目标仓位，获取目标挂单
@@ -189,6 +213,10 @@ impl Executor<Bbo> for NaiveLimitExecutor {
         self.last_signal = signal;
         if signal.is_some() {
             self.last_signal_ts = self.bbo.ts
+        }
+
+        if !events.is_empty() {
+            self.last_event_ts = self.bbo.ts
         }
 
         events
@@ -205,7 +233,10 @@ mod tests {
             "TEST_INST".try_into().unwrap(),
             1000.0, // notional
             2,      // size_digits
+            2,
+            0.,
             Duration::milliseconds(10000),  // holding_duration in ms
+            Duration::seconds(0),
             123,    // order_id_offset
         )
     }
@@ -393,7 +424,8 @@ mod tests {
         executor.update(&BrokerEvent::Data(bbo));
 
         let events = executor.on_signal(Some(Signal::Long));
-        assert_eq!(events.len(), 0);
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], ClientEvent::ModifyOrder(_)));
     }
 
     #[test]
@@ -591,13 +623,5 @@ mod tests {
         } else {
             panic!("Expected PlaceOrder event with limit order");
         }
-
-        // 15. 价格再次变动
-        let bbo = create_test_bbo(17000, 100.0, 101.0);
-        executor.update(&BrokerEvent::Data(bbo));
-
-        // 16. 维持多头信号，无操作
-        let events = executor.on_signal(Some(Signal::Long));
-        assert_eq!(events.len(), 0);
     }
 }

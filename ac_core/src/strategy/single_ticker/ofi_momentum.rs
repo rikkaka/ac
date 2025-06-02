@@ -1,10 +1,14 @@
-
 use chrono::Duration;
+use data_center::instruments_profile::INSTRUMENT_PROFILES;
 
 use crate::{
-    data::Bbo, strategy::{
-        calc::{Ema, Emav}, executors::NaiveLimitExecutor, Signal, SignalExecuteStrategy, Signaler, Strategy
-    }, InstId, Timestamp
+    InstId, Timestamp,
+    data::Bbo,
+    strategy::{
+        Signal, SignalExecuteStrategy, Signaler, Strategy,
+        calc::{Ema, Emav},
+        executors::NaiveLimitExecutor,
+    },
 };
 
 /// 订单流失衡。
@@ -94,7 +98,7 @@ impl OfiMomentum {
             window_ofi,
             window_ema,
             theta,
-            warm_up_duration: 3 * window_ofi.max(window_ema),
+            warm_up_duration: 1 * window_ofi.max(window_ema),
             ..Default::default()
         }
     }
@@ -110,11 +114,7 @@ impl Signaler<Bbo> for OfiMomentum {
 
         // Initialize variables on first data
         if self.variables.is_none() {
-            self.variables = Some(Variables::new(
-                *bbo,
-                self.window_ofi,
-                self.window_ema,
-            ));
+            self.variables = Some(Variables::new(*bbo, self.window_ofi, self.window_ema));
             return None;
         }
 
@@ -139,17 +139,28 @@ pub struct OfiMomentumArgs {
     pub theta: f64,
     /// 信号消失后的持仓时间
     pub holding_duration: Duration,
-    
+    pub event_interval: Duration,
+
     pub notional: f64,
-    pub size_digits: u32,
+    pub price_offset: f64,
     /// 策略实例的全局唯一标识符，小于2^16
-    pub order_id_offset: u64
+    pub order_id_offset: u64,
 }
 
 impl OfiMomentumArgs {
     pub fn into_strategy(self) -> impl Strategy<Bbo> {
+        let profile = &INSTRUMENT_PROFILES[&self.instrument_id];
         let ofi_momentum_signaler = OfiMomentum::new(self.window_ofi, self.window_ema, self.theta);
-        let executor = NaiveLimitExecutor::new(self.instrument_id, self.notional, self.size_digits, self.holding_duration, self.order_id_offset);
+        let executor = NaiveLimitExecutor::new(
+            self.instrument_id,
+            self.notional,
+            profile.size_digits,
+            profile.price_digits,
+            self.price_offset,
+            self.holding_duration,
+            self.event_interval,
+            self.order_id_offset,
+        );
         SignalExecuteStrategy::new(ofi_momentum_signaler, executor)
     }
 }

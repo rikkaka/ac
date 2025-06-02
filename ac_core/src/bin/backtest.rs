@@ -14,16 +14,17 @@ async fn main() {
     let instrument_id = ArrayString::try_from("ETH-USDT-SWAP").unwrap();
     let instruments = vec![instrument_id];
 
-    let data_provider = get_bbo_history_provider(instruments.clone(), Duration::hours(240));
+    let data_provider = get_bbo_history_provider(instruments.clone(), Duration::hours(2400));
 
     let strategy_args = OfiMomentumArgs {
         instrument_id,
-        window_ofi: Duration::seconds(30),
-        window_ema: Duration::minutes(30),
-        holding_duration: Duration::seconds(60),
-        theta: 3.,
+        window_ofi: Duration::minutes(8),
+        window_ema: Duration::minutes(240),
+        holding_duration: Duration::seconds(200),
+        event_interval: Duration::seconds(1),
+        theta: 5.,
         notional: 100_000.,
-        size_digits: 2,
+        price_offset: 0.,
         order_id_offset: 0,
     };
     let strategy = strategy_args.into_strategy();
@@ -43,5 +44,7 @@ async fn main() {
 
     let broker = engine.broker();
     let reporter = broker.reporter();
+    let sharpe = reporter.sharpe_ratio();
+    println!("sharpe: {sharpe:?}");
     reporter.to_csv(Path::new("./report.csv")).unwrap();
 }
