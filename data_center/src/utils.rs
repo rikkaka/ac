@@ -123,10 +123,11 @@ where
             };
             // 在收到任意消息后，重置心跳计时器
             this.ping_ticker.reset();
-            // 如果是pong，则结束等待pong
+            // 并且结束等待pong
+            *this.is_waiting_pong = false;
+
             if matches!(msg, Ok(ref m) if *m == Message::text("pong")) {
                 tracing::info!("Received pong");
-                *this.is_waiting_pong = false;
             } else {
                 break msg;
             }
