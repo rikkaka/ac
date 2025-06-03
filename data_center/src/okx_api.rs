@@ -181,7 +181,7 @@ where
 {
     Heartbeat::new(
         ws_stream,
-        Duration::from_millis(500),
-        Duration::from_millis(300),
+        Duration::from_millis(600),
+        Duration::from_millis(100),
     )
 }
