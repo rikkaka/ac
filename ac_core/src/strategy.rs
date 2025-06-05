@@ -32,11 +32,7 @@ pub trait Strategy<D> {
     fn is_cooling(&self, now: Timestamp) -> bool {
         let last_ts = self.last_event_ts();
         let cooling_duration = self.get_cooling_duration().num_milliseconds() as u64;
-        if now - last_ts < cooling_duration {
-            true
-        } else {
-            false
-        }
+        now - last_ts < cooling_duration
     }
 
     fn on_event(&mut self, broker_event: &BrokerEvent<D>, now: Timestamp) -> Vec<ClientEvent> {

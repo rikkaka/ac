@@ -28,7 +28,7 @@ mod test {
 
     #[test]
     fn test() {
-        assert!(INSTRUMENT_PROFILES.len() > 0);
+        assert!(!INSTRUMENT_PROFILES.is_empty());
         dbg!(&INSTRUMENT_PROFILES);
     }
 }

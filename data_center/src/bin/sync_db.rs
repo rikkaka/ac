@@ -9,7 +9,7 @@ const TABLES: &[&str] = &["okx_bbo", "okx_trades"];
 async fn main() {
     let mut join_handles = vec![];
     for table in TABLES {
-        let handle = tokio::spawn(sync_table(&table));
+        let handle = tokio::spawn(sync_table(table));
         join_handles.push(handle);
     }
     join_all(join_handles).await;

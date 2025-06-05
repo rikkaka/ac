@@ -98,7 +98,7 @@ impl OfiMomentum {
             window_ofi,
             window_ema,
             theta,
-            warm_up_duration: 1 * window_ofi.max(window_ema),
+            warm_up_duration: window_ofi.max(window_ema),
             ..Default::default()
         }
     }

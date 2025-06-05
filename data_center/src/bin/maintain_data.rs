@@ -7,7 +7,6 @@ use data_center::{
         types::{Data, SubscribeArg},
     },
     sql,
-    types::Trade,
 };
 use futures_util::StreamExt;
 

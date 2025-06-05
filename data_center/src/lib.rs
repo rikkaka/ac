@@ -1,4 +1,3 @@
-use futures::Stream;
 
 pub mod instruments_profile;
 pub mod okx_api;

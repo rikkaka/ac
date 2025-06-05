@@ -19,7 +19,6 @@ use types::{Data, Push};
 use crate::{
     delegate_sink,
     okx_api::types::{OrderRequest, SubscribeArg},
-    types::InstId,
     utils::{AutoReconnect, Duplex, Heartbeat},
 };
 

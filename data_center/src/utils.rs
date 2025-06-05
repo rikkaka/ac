@@ -291,7 +291,7 @@ where
 mod tests {
     use super::*;
     use futures::{SinkExt, StreamExt, pin_mut, stream};
-    use std::error::Error;
+    
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use tokio::sync::mpsc;

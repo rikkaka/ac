@@ -30,6 +30,6 @@ where
         }
     }
 
-    let mut result: Vec<_> = heap.into_iter().map(|r| r.0).collect();
+    let result: Vec<_> = heap.into_iter().map(|r| r.0).collect();
     result
 }
