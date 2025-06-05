@@ -114,7 +114,7 @@ where
             match this.stream1.poll_next(cx) {
                 Poll::Ready(Some(item)) => *this.buffer1 = Some(item),
                 Poll::Ready(None) => *this.stream1_ended = true,
-                Poll::Pending => return Poll::Pending
+                Poll::Pending => return Poll::Pending,
             }
         }
 
@@ -123,7 +123,7 @@ where
             match this.stream2.poll_next(cx) {
                 Poll::Ready(Some(item)) => *this.buffer2 = Some(item),
                 Poll::Ready(None) => *this.stream2_ended = true,
-                Poll::Pending => return Poll::Pending
+                Poll::Pending => return Poll::Pending,
             }
         }
 

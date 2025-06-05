@@ -105,8 +105,9 @@ where
         self.ts = new_data.get_ts();
         if let Some(matcher) = new_data.draw_matcher() {
             self.inst_matcher.insert(matcher.instrument_id(), matcher);
+            // 若有新的MatchOrder，尝试匹配所有的限价单。
+            self.try_fill_placed_orders();
         }
-        self.try_fill_placed_orders();
     }
 
     /// 遍历所有挂单并检查能否成交；将成交的挂单推入事件并移除
@@ -219,26 +220,56 @@ where
                         self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
                     } else {
                         self.limit_orders.insert(order.order_id, order);
+                        self.broker_events_buf.push_back(BrokerEvent::Placed(order));
                     }
                 }
             },
-            ClientEvent::ModifyOrder(order) => {
+            ClientEvent::AmendOrder(order) => {
                 if let Order::Limit(order) = order {
                     if let Some(existing_order) = self.limit_orders.get_mut(&order.order_id) {
                         existing_order.price = order.price;
                         existing_order.size = order.size;
+                        self.broker_events_buf
+                            .push_back(BrokerEvent::Modified(*existing_order));
                     }
                 }
             }
             ClientEvent::CancelOrder(order_id) => {
                 self.limit_orders.remove(&order_id);
+                self.broker_events_buf
+                    .push_back(BrokerEvent::Canceled(order_id));
             }
         }
     }
+
+    fn now(&self) -> Timestamp {
+        self.ts
+    }
 }
 
+/// 市场数据类型。由DataProvider流式提供。从中可能提取Matcher，用于撮合交易。
+pub trait MarketData<M>: Clone + Debug {
+    fn draw_matcher(self) -> Option<M>;
+    fn get_ts(&self) -> Timestamp;
+}
+impl<T> MarketData<T> for T
+where
+    T: MatchOrder + Clone + Debug,
+{
+    fn draw_matcher(self) -> Option<T> {
+        Some(self)
+    }
+
+    fn get_ts(&self) -> Timestamp {
+        self.get_ts()
+    }
+}
+
+/// 能够用于撮合订单的市场数据。一般是bbo。
 pub trait MatchOrder: Sized {
+    /// 由现存的Bbo，立即成交市价单。
     fn fill_market_order(inst_data: &FxHashMap<InstId, Self>, order: &MarketOrder) -> Fill;
+    /// 限价单到达时，尝试以Taker成交限价单。随后每期对限价单进行匹配。
     fn try_fill_limit_order(
         inst_data: &FxHashMap<InstId, Self>,
         order: &LimitOrder,
@@ -247,29 +278,13 @@ pub trait MatchOrder: Sized {
     fn instrument_id(&self) -> InstId;
     fn get_ts(&self) -> Timestamp;
     fn market_price(&self) -> f64;
+
+    /// 通过由 产品名-MatchOrder 组成的HashMap，得到所有产品的价格
     fn get_inst_market_price(inst_data: &FxHashMap<InstId, Self>) -> FxHashMap<InstId, f64> {
         inst_data
             .iter()
             .map(|(id, data)| (*id, data.market_price()))
             .collect()
-    }
-}
-
-pub trait MarketData<M>: Clone + Debug {
-    fn draw_matcher(self) -> Option<M>;
-    fn get_ts(&self) -> Timestamp;
-}
-
-impl<T> MarketData<T> for T
-where
-    T: Clone + MatchOrder + Debug,
-{
-    fn draw_matcher(self) -> Option<T> {
-        Some(self)
-    }
-
-    fn get_ts(&self) -> Timestamp {
-        self.get_ts()
     }
 }
 
@@ -561,10 +576,10 @@ mod tests {
 
     impl Unpin for MockDataProvider {}
 
-    fn create_mock_bbo(ts: u64, instrument_id: &str, bid_price: f64, ask_price: f64) -> Bbo {
+    fn create_mock_bbo(ts: u64, bid_price: f64, ask_price: f64) -> Bbo {
         Bbo {
             ts,
-            instrument_id: instrument_id.try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             bid_price,
             ask_price,
             bid_size: 1.,
@@ -572,29 +587,47 @@ mod tests {
         }
     }
 
+    fn create_market_order(order_id: u64, size: f64, side: bool) -> Order {
+        Order::Market(MarketOrder {
+            order_id,
+            instrument_id: InstId::EthUsdtSwap,
+            size,
+            side,
+        })
+    }
+
+    fn create_limit_order(order_id: u64, price: f64, size: f64, side: bool) -> Order {
+        Order::Limit(LimitOrder {
+            order_id,
+            instrument_id: InstId::EthUsdtSwap,
+            price,
+            size,
+            side,
+            filled_size: 0.,
+        })
+    }
+
+    macro_rules! create_sandbox_broker {
+        ($inst_id:expr, $mock_data:expr) => {
+            SandboxBroker::new(
+                vec![$inst_id],
+                MockDataProvider::new($mock_data),
+                100000.0,
+                TransactionCostModel::new(0.001, 0.002, 0.0001),
+                Duration::milliseconds(1000),
+            )
+            .await
+        };
+        () => {};
+    }
+
     #[tokio::test]
     async fn test_sandbox_broker_market_order() {
-        let mock_data = vec![create_mock_bbo(1000, "BTCUSDT", 50000.0, 50001.0)];
+        let mock_data = vec![create_mock_bbo(1000, 50000.0, 50001.0)];
 
-        let data_provider = MockDataProvider::new(mock_data);
-        let transaction_cost_model = TransactionCostModel::new(0.001, 0.002, 0.0001);
+        let mut broker = create_sandbox_broker!(InstId::EthUsdtSwap, mock_data);
 
-        let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
-            data_provider,
-            100000.0,
-            transaction_cost_model,
-            Duration::milliseconds(1000),
-        )
-        .await;
-
-        // Place a market buy order
-        let market_order = Order::Market(MarketOrder {
-            order_id: 1,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            size: 1.0,
-            side: true, // buy
-        });
+        let market_order = create_market_order(1, 1.0, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(market_order));
 
@@ -617,13 +650,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_sandbox_broker_limit_order_immediate_fill() {
-        let mock_data = vec![create_mock_bbo(1000, "BTCUSDT", 50000.0, 50001.0)];
+        let mock_data = vec![create_mock_bbo(1000, 50000.0, 50001.0)];
 
         let data_provider = MockDataProvider::new(mock_data);
         let transaction_cost_model = TransactionCostModel::new(0.001, 0.002, 0.0001);
 
         let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
+            vec![InstId::EthUsdtSwap],
             data_provider,
             100000.0,
             transaction_cost_model,
@@ -632,14 +665,7 @@ mod tests {
         .await;
 
         // Place a limit buy order at ask price (should fill immediately)
-        let limit_order = Order::Limit(LimitOrder {
-            order_id: 2,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            price: 50001.0,
-            size: 0.5,
-            side: true, // buy
-            filled_size: 0.,
-        });
+        let limit_order = create_limit_order(2, 50001.0, 0.5, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
 
@@ -660,35 +686,20 @@ mod tests {
     #[tokio::test]
     async fn test_sandbox_broker_limit_order_placed() {
         let mock_data = vec![
-            create_mock_bbo(1000, "BTCUSDT", 50000.0, 50001.0),
-            create_mock_bbo(2000, "BTCUSDT", 50002.0, 50003.0),
+            create_mock_bbo(1000, 50000.0, 50001.0),
+            create_mock_bbo(2000, 50002.0, 50003.0),
         ];
 
-        let data_provider = MockDataProvider::new(mock_data);
-        let transaction_cost_model = TransactionCostModel::new(0.001, 0.002, 0.0001);
-
-        let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
-            data_provider,
-            100000.0,
-            transaction_cost_model,
-            Duration::milliseconds(1000),
-        )
-        .await;
+        let mut broker = create_sandbox_broker!(InstId::EthUsdtSwap, mock_data);
 
         dbg!(&broker.data_provider.index);
 
         // Place a limit buy order below current bid (should not fill)
-        let limit_order = Order::Limit(LimitOrder {
-            order_id: 3,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            price: 49999.0,
-            size: 1.0,
-            side: true, // buy
-            filled_size: 0.,
-        });
+        let limit_order = create_limit_order(3, 49999.0, 1.0, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
+        let event = broker.next().await.unwrap();
+        assert!(matches!(event, BrokerEvent::Placed(_)));
 
         // Should have the order in limit_orders map
         assert!(broker.limit_orders.contains_key(&3));
@@ -707,34 +718,26 @@ mod tests {
     #[tokio::test]
     async fn test_sandbox_broker_limit_order_fill_on_price_movement() {
         let mock_data = vec![
-            create_mock_bbo(1000, "BTCUSDT", 50000.0, 50001.0),
-            create_mock_bbo(2000, "BTCUSDT", 50000.0, 50001.0),
-            create_mock_bbo(3000, "BTCUSDT", 49997.0, 49998.0), // Price drops
+            create_mock_bbo(1000, 50000.0, 50001.0),
+            create_mock_bbo(2000, 50000.0, 50001.0),
+            create_mock_bbo(3000, 49997.0, 49998.0), // Price drops
         ];
 
-        let data_provider = MockDataProvider::new(mock_data);
-        let transaction_cost_model = TransactionCostModel::new(0.001, 0.002, 0.0001);
-
-        let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
-            data_provider,
-            100000.0,
-            transaction_cost_model,
-            Duration::milliseconds(1000),
-        )
-        .await;
+        let mut broker = create_sandbox_broker!(InstId::EthUsdtSwap, mock_data);
 
         // Place a limit buy order
-        let limit_order = Order::Limit(LimitOrder {
-            order_id: 4,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            price: 49999.0,
-            size: 1.0,
-            side: true, // buy
-            filled_size: 0.,
-        });
+        let limit_order = create_limit_order(4, 49999.0, 1.0, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
+
+        // First event should be order placed
+        let event = broker.next().await.unwrap();
+        match event {
+            BrokerEvent::Placed(_) => {
+                // Expected
+            }
+            _ => panic!("Expected Placed event: {event:#?}"),
+        }
 
         // First event should be data
         let event = broker.next().await.unwrap();
@@ -761,88 +764,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_sandbox_broker_modify_order() {
+    async fn test_sandbox_broker_amend_order() {
         let mock_data = vec![
-            create_mock_bbo(1000, "BTCUSDT", 50000.0, 50001.0),
-            create_mock_bbo(1000, "BTCUSDT", 50002.0, 50003.0),
+            create_mock_bbo(1000, 50000.0, 50001.0),
+            create_mock_bbo(1000, 50002.0, 50003.0),
         ];
 
-        let data_provider = MockDataProvider::new(mock_data);
-        let transaction_cost_model = TransactionCostModel::new(0.001, 0.002, 0.0001);
+        let mut broker = create_sandbox_broker!(InstId::EthUsdtSwap, mock_data);
 
-        let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
-            data_provider,
-            100000.0,
-            transaction_cost_model,
-            Duration::milliseconds(1000),
-        )
-        .await;
-
-        // Place a limit order
-        let limit_order = Order::Limit(LimitOrder {
-            order_id: 5,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            price: 49999.0,
-            size: 1.0,
-            side: true,
-            filled_size: 0.,
-        });
+        let limit_order = create_limit_order(5, 49999.0, 1.0, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
+        let event = broker.next().await.unwrap();
+        assert!(matches!(event, BrokerEvent::Placed(_)));
 
-        // Modify the order
-        let modified_order = Order::Limit(LimitOrder {
-            order_id: 5,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            price: 50001.0, // New price that should fill
-            size: 0.8,      // New size
-            side: true,
-            filled_size: 0.,
-        });
+        // Amend the order
+        let amended_order = create_limit_order(5, 50001.0, 0.8, true);
 
-        broker.on_client_event(ClientEvent::ModifyOrder(modified_order));
+        broker.on_client_event(ClientEvent::AmendOrder(amended_order));
+        let event = broker.next().await.unwrap();
+        assert!(matches!(event, BrokerEvent::Modified(_)));
 
-        // Check that order was modified
+        // Check that order was amended
         let order = broker.limit_orders.get(&5).unwrap();
         assert_eq!(order.price, 50001.0);
         assert_eq!(order.size, 0.8);
 
         // Get data event
         let event = broker.next().await.unwrap();
-        match event {
-            BrokerEvent::Data(_) => {
-                // Expected
-            }
-            _ => panic!("Expected Data event"),
-        }
+        assert!(matches!(event, BrokerEvent::Data(_)));
     }
 
     #[tokio::test]
     async fn test_sandbox_broker_cancel_order() {
-        let mock_data = vec![create_mock_bbo(1000, "BTCUSDT", 50000.0, 50001.0)];
+        let mock_data = vec![create_mock_bbo(1000, 50000.0, 50001.0)];
 
-        let data_provider = MockDataProvider::new(mock_data);
-        let transaction_cost_model = TransactionCostModel::new(0.001, 0.002, 0.0001);
-
-        let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
-            data_provider,
-            100000.0,
-            transaction_cost_model,
-            Duration::milliseconds(1000),
-        )
-        .await;
+        let mut broker = create_sandbox_broker!(InstId::EthUsdtSwap, mock_data);
 
         // Place a limit order
-        let limit_order = Order::Limit(LimitOrder {
-            order_id: 6,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            price: 49999.0,
-            size: 1.0,
-            side: true,
-            filled_size: 0.,
-        });
+        let limit_order = create_limit_order(6, 49999.0, 1.0, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
         assert!(broker.limit_orders.contains_key(&6));
@@ -858,49 +818,20 @@ mod tests {
     #[tokio::test]
     async fn test_sandbox_broker_multiple_orders_complex_scenario() {
         let mock_data = vec![
-            create_mock_bbo(0, "BTCUSDT", 50000.0, 50001.0),
-            create_mock_bbo(1000, "BTCUSDT", 50000.0, 50001.0),
-            create_mock_bbo(2000, "BTCUSDT", 49995.0, 49996.0), // Price drops significantly
-            create_mock_bbo(3000, "BTCUSDT", 50005.0, 50006.0), // Price rises
+            create_mock_bbo(0, 50000.0, 50001.0),
+            create_mock_bbo(1000, 50000.0, 50001.0),
+            create_mock_bbo(2000, 49995.0, 49996.0), // Price drops significantly
+            create_mock_bbo(3000, 50005.0, 50006.0), // Price rises
         ];
 
-        let data_provider = MockDataProvider::new(mock_data);
-        let transaction_cost_model = TransactionCostModel::new(0.001, 0.002, 0.0001);
-
-        let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
-            data_provider,
-            100000.0,
-            transaction_cost_model,
-            Duration::milliseconds(1000),
-        )
-        .await;
+        let mut broker = create_sandbox_broker!(InstId::EthUsdtSwap, mock_data);
         let initial_cash = broker.cash;
 
         // Place multiple orders
         let orders = vec![
-            ClientEvent::PlaceOrder(Order::Limit(LimitOrder {
-                order_id: 10,
-                instrument_id: "BTCUSDT".try_into().unwrap(),
-                price: 49998.0, // Should fill when price drops
-                size: 0.5,
-                side: true,
-                filled_size: 0.,
-            })),
-            ClientEvent::PlaceOrder(Order::Limit(LimitOrder {
-                order_id: 11,
-                instrument_id: "BTCUSDT".try_into().unwrap(),
-                price: 50002.0, // Should fill when price rises
-                size: 1.,
-                side: false, // sell
-                filled_size: 0.,
-            })),
-            ClientEvent::PlaceOrder(Order::Market(MarketOrder {
-                order_id: 12,
-                instrument_id: "BTCUSDT".try_into().unwrap(),
-                size: 0.1,
-                side: true,
-            })),
+            ClientEvent::PlaceOrder(create_limit_order(10, 49998.0, 0.5, true)),
+            ClientEvent::PlaceOrder(create_limit_order(11, 50002.0, 1.0, false)),
+            ClientEvent::PlaceOrder(create_market_order(12, 0.1, true)),
         ];
 
         broker.on_client_events(orders.into_iter());
@@ -914,7 +845,7 @@ mod tests {
         let expected_fills = vec![
             Fill {
                 order_id: 12,
-                instrument_id: "BTCUSDT".try_into().unwrap(),
+                instrument_id: InstId::EthUsdtSwap,
                 side: true,
                 price: 50001.0, // Market order should fill at ask price
                 filled_size: 0.1,
@@ -924,7 +855,7 @@ mod tests {
             },
             Fill {
                 order_id: 10,
-                instrument_id: "BTCUSDT".try_into().unwrap(),
+                instrument_id: InstId::EthUsdtSwap,
                 side: true,
                 price: 49998.0,
                 filled_size: 0.5,
@@ -934,7 +865,7 @@ mod tests {
             },
             Fill {
                 order_id: 11,
-                instrument_id: "BTCUSDT".try_into().unwrap(),
+                instrument_id: InstId::EthUsdtSwap,
                 side: false,
                 price: 50002.0,
                 filled_size: 1.,
@@ -951,13 +882,14 @@ mod tests {
                     assert_eq!(fill, expected_fills[fill_count]);
                     fill_count += 1;
                 }
-                BrokerEvent::Data(data) => {
+                BrokerEvent::Data(_) => {
                     data_count += 1;
                 }
+                _ => {}
             }
         }
 
-        let position = &broker.portfolio.positions["BTCUSDT"];
+        let position = &broker.portfolio.positions[&InstId::EthUsdtSwap];
         assert_approx_eq!(f64, position.size, 0.5 - 1. + 0.1); // 0.5 bought, 1 sold, 0.1 bought
         assert!(position.size < 0.); // Net position should be short
 
@@ -977,10 +909,10 @@ mod tests {
     async fn test_sandbox_broker_reporter() {
         // Create market data with clear price changes
         let mock_data = vec![
-            create_mock_bbo(999, "BTCUSDT", 49999.0, 50000.0), // Initial price
-            create_mock_bbo(1999, "BTCUSDT", 50999.0, 51000.0), // Price up
-            create_mock_bbo(2999, "BTCUSDT", 48999.0, 49000.0), // Price down
-            create_mock_bbo(3999, "BTCUSDT", 51999.0, 52000.0), // Price up again
+            create_mock_bbo(999, 49999.0, 50000.0),  // Initial price
+            create_mock_bbo(1999, 50999.0, 51000.0), // Price up
+            create_mock_bbo(2999, 48999.0, 49000.0), // Price down
+            create_mock_bbo(3999, 51999.0, 52000.0), // Price up again
         ];
 
         let data_provider = MockDataProvider::new(mock_data);
@@ -991,7 +923,7 @@ mod tests {
         // Initial cash 10,000
         let initial_cash = 10000.0;
         let mut broker = SandboxBroker::new(
-            vec!["BTCUSDT".try_into().unwrap()],
+            vec![InstId::EthUsdtSwap],
             data_provider,
             initial_cash,
             transaction_cost_model,
@@ -1000,12 +932,7 @@ mod tests {
         .await;
 
         // 1. Buy 0.1 BTC at 50,000
-        broker.on_client_event(ClientEvent::PlaceOrder(Order::Market(MarketOrder {
-            order_id: 1,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            size: 0.1,
-            side: true, // buy
-        })));
+        broker.on_client_event(ClientEvent::PlaceOrder(create_market_order(1, 0.1, true)));
 
         // Get first event (fill)
         let event = broker.next().await.unwrap();
@@ -1026,12 +953,7 @@ mod tests {
         }
 
         // 3. Sell 0.05 BTC at 51,000
-        broker.on_client_event(ClientEvent::PlaceOrder(Order::Market(MarketOrder {
-            order_id: 2,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            size: 0.05,
-            side: false, // sell
-        })));
+        broker.on_client_event(ClientEvent::PlaceOrder(create_market_order(2, 0.05, false)));
 
         // Get sell fill event
         let event = broker.next().await.unwrap();
@@ -1052,12 +974,7 @@ mod tests {
         }
 
         // 5. Buy 0.1 BTC at 49,000
-        broker.on_client_event(ClientEvent::PlaceOrder(Order::Market(MarketOrder {
-            order_id: 3,
-            instrument_id: "BTCUSDT".try_into().unwrap(),
-            size: 0.1,
-            side: true, // buy
-        })));
+        broker.on_client_event(ClientEvent::PlaceOrder(create_market_order(3, 0.1, true)));
 
         // Get buy fill event
         let event = broker.next().await.unwrap();
@@ -1142,10 +1059,10 @@ mod tests {
 
         // Verify final portfolio state
         assert_approx_eq!(f64, broker.cash, cash, epsilon = 1e-6);
-        assert!(broker.portfolio.positions["BTCUSDT"].size > 0.); // Long
+        assert!(broker.portfolio.positions[&InstId::EthUsdtSwap].size > 0.); // Long
         assert_approx_eq!(
             f64,
-            broker.portfolio.positions["BTCUSDT"].size,
+            broker.portfolio.positions[&InstId::EthUsdtSwap].size,
             0.15,
             epsilon = 1e-6
         );

@@ -1,6 +1,5 @@
 pub mod okx;
 
-
 use crate::InstId;
 
 #[derive(Debug, Clone)]
@@ -29,12 +28,13 @@ pub struct Bbo {
     pub bid_price: f64,
     pub bid_size: f64,
     pub ask_price: f64,
-    pub ask_size: f64
+    pub ask_size: f64,
 }
 
 impl Bbo {
     pub fn get_unbiased_price(&self) -> f64 {
-        (self.bid_price * self.ask_size + self.ask_price * self.bid_size) / (self.bid_size + self.ask_size)
+        (self.bid_price * self.ask_size + self.ask_price * self.bid_size)
+            / (self.bid_size + self.ask_size)
     }
 
     pub fn get_spread(&self) -> f64 {
@@ -54,7 +54,7 @@ impl From<data_center::types::Bbo> for Bbo {
             bid_price: bbo.best_bid.price,
             bid_size: bbo.best_bid.size,
             ask_price: bbo.best_ask.price,
-            ask_size: bbo.best_ask.size
+            ask_size: bbo.best_ask.size,
         }
     }
 }

@@ -1,6 +1,6 @@
+use anyhow::Result;
 use futures::{Sink, Stream, ready};
 use pin_project::pin_project;
-use anyhow::Result;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::pin::Pin;
@@ -99,7 +99,7 @@ where
 
         // 2. 若距离上次收到消息的时间到达心跳间隔，则发送ping消息并注册计时器
         if this.ping_ticker.poll_tick(cx).is_ready() {
-            tracing::info!("Sending ping");
+            tracing::debug!("Sending ping");
             if let Err(e) = this.inner.as_mut().start_send("ping".into()) {
                 tracing::error!("Failed to send heartbeat: {e}");
                 return Poll::Ready(None);
@@ -127,7 +127,7 @@ where
             *this.is_waiting_pong = false;
 
             if matches!(msg, Ok(ref m) if *m == Message::text("pong")) {
-                tracing::info!("Received pong");
+                tracing::debug!("Received pong");
             } else {
                 break msg;
             }
@@ -383,7 +383,8 @@ mod tests {
 
             let ping_msg = server_rx.recv().await;
             assert_eq!(ping_msg, Some(Message::text("ping")));
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            // 等待超时，client应关闭
+            tokio::time::sleep(Duration::from_millis(80)).await;
             server_tx.send(Message::text("4")).await.unwrap_err();
         });
 

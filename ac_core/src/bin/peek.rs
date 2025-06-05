@@ -1,19 +1,13 @@
-use std::{cmp::Reverse, collections::BinaryHeap, path::Path};
+use std::{cmp::Reverse, collections::BinaryHeap};
 
-use ac_core::{
-    Engine,
-    backtest::{SandboxBroker, TransactionCostModel},
-    data::okx::get_bbo_history_provider,
-    strategy::single_ticker::ofi_momentum::OfiMomentumArgs,
-};
-use arrayvec::ArrayString;
+use ac_core::{InstId, data::okx::get_bbo_history_provider};
 use chrono::Duration;
-use futures::{pin_mut, Stream, StreamExt};
+use futures::{Stream, StreamExt, pin_mut};
 use ordered_float::OrderedFloat;
 
 #[tokio::main]
 async fn main() {
-    let instrument_id = ArrayString::try_from("ETH-USDT-SWAP").unwrap();
+    let instrument_id = InstId::EthUsdtSwap;
     let instruments = vec![instrument_id];
     let data_provider = get_bbo_history_provider(instruments.clone(), Duration::hours(2400));
     let spread_stream = data_provider.map(|bbo| OrderedFloat(bbo.ask_price - bbo.bid_price));

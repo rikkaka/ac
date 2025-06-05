@@ -2,7 +2,9 @@ use chrono::Duration;
 use float_cmp::approx_eq;
 
 use crate::{
-    data::Bbo, utils::{round_f64, truncate_f64}, BrokerEvent, ClientEvent, InstId, LimitOrder, Order, Position, Timestamp
+    BrokerEvent, ClientEvent, InstId, LimitOrder, Order, Position, Timestamp,
+    data::Bbo,
+    utils::{round_f64, truncate_f64},
 };
 
 use super::{Executor, Signal};
@@ -111,7 +113,7 @@ impl NaiveLimitExecutor {
             return None;
         }
         if raw_size.abs() * price < self.notional_threshold {
-            return None
+            return None;
         }
         let order = LimitOrder::from_raw_size(
             raw_size,
@@ -127,7 +129,6 @@ impl NaiveLimitExecutor {
         // 若不存在挂单，则直接下单
         let Some(ref mut old_order) = self.placed_order else {
             let order = self.gen_order(raw_size, price);
-            self.placed_order = order;
             let event = order.map(ClientEvent::place_limit_order);
             return event.into_iter().collect();
         };
@@ -135,7 +136,6 @@ impl NaiveLimitExecutor {
         // 若目标订单的size为0，则取消目前挂单
         if approx_eq!(f64, 0., raw_size, epsilon = self.size_eps) {
             let old_order_id = old_order.order_id;
-            self.placed_order = None;
             return vec![ClientEvent::CancelOrder(old_order_id)];
         }
 
@@ -149,8 +149,8 @@ impl NaiveLimitExecutor {
                 epsilon = self.size_eps
             ) || old_order.price != price
             {
-                let modified_order = old_order.modified(new_size, price);
-                return vec![ClientEvent::ModifyOrder(Order::Limit(modified_order))];
+                let amended_order = old_order.amended(new_size, price);
+                return vec![ClientEvent::AmendOrder(Order::Limit(amended_order))];
             }
 
             // 两个思路：1：在收到信号后，在信号改变前，维持最初的挂单，不改单；
@@ -163,7 +163,6 @@ impl NaiveLimitExecutor {
             let old_order_id = old_order.order_id;
             events.push(ClientEvent::CancelOrder(old_order_id));
             let new_order = self.gen_order(raw_size, price);
-            self.placed_order = new_order;
             events.extend(new_order.map(ClientEvent::place_limit_order));
             events
         }
@@ -189,6 +188,15 @@ impl Executor<Bbo> for NaiveLimitExecutor {
                 self.placed_order = self.placed_order.and_then(|order| order.fill(fill));
                 self.position.update(fill);
             }
+            BrokerEvent::Placed(order) => self.placed_order = Some(*order),
+            BrokerEvent::Modified(order) => self.placed_order = Some(*order),
+            BrokerEvent::Canceled(order_id) => {
+                if let Some(order) = self.placed_order {
+                    if order.order_id == *order_id {
+                        self.placed_order = None
+                    }
+                }
+            }
         }
     }
 
@@ -199,7 +207,7 @@ impl Executor<Bbo> for NaiveLimitExecutor {
         // }
 
         if self.bbo.ts - self.last_event_ts < self.event_interval {
-            return vec![]
+            return vec![];
         }
 
         // 根据信号，获取目标仓位
@@ -208,7 +216,7 @@ impl Executor<Bbo> for NaiveLimitExecutor {
         let (ideal_order_size, price) = self.calc_target_order_arg(ideal_position);
         // 根据目标挂单，获取操作
         let events = self.get_event_from_target_order(ideal_order_size, price);
-        
+
         // 更新signal相关状态
         self.last_signal = signal;
         if signal.is_some() {
@@ -230,21 +238,21 @@ mod tests {
 
     fn create_test_executor() -> NaiveLimitExecutor {
         NaiveLimitExecutor::new(
-            "TEST_INST".try_into().unwrap(),
+            InstId::EthUsdtSwap,
             1000.0, // notional
             2,      // size_digits
             2,
             0.,
-            Duration::milliseconds(10000),  // holding_duration in ms
+            Duration::milliseconds(10000), // holding_duration in ms
             Duration::seconds(0),
-            123,    // order_id_offset
+            123, // order_id_offset
         )
     }
 
     fn create_test_bbo(ts: u64, bid_price: f64, ask_price: f64) -> Bbo {
         Bbo {
             ts,
-            instrument_id: "TEST_INST".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             bid_price,
             bid_size: 10.0,
             ask_price,
@@ -255,7 +263,6 @@ mod tests {
     #[test]
     fn test_new_executor() {
         let executor = create_test_executor();
-        assert_eq!(executor.instrument_id.as_str(), "TEST_INST");
         assert_eq!(executor.notional, 1000.0);
         assert_eq!(executor.size_digits, 2);
         assert_eq!(executor.size_eps, 0.01);
@@ -276,7 +283,6 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[0] {
-            assert_eq!(order.instrument_id.as_str(), "TEST_INST");
             assert!(order.side); // Buy side
             assert_eq!(order.price, 100.0); // Should use bid price
             assert_eq!(order.size, 10.0); // 1000 / 100 = 10
@@ -298,7 +304,6 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[0] {
-            assert_eq!(order.instrument_id.as_str(), "TEST_INST");
             assert!(!order.side); // Sell side
             assert_eq!(order.price, 101.0); // Should use ask price
             assert_eq!(order.size, 9.90); // 1000 / 101 = 9.90 (truncated to 2 decimals)
@@ -320,7 +325,10 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         let order_id = match &events[0] {
-            ClientEvent::PlaceOrder(Order::Limit(order)) => order.order_id,
+            ClientEvent::PlaceOrder(Order::Limit(order)) => {
+                executor.update(&BrokerEvent::Placed(*order));
+                order.order_id
+            }
             _ => panic!("Expected PlaceOrder event"),
         };
 
@@ -360,7 +368,7 @@ mod tests {
         // Simulate a fill
         let fill = Fill {
             order_id,
-            instrument_id: "TEST_INST".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             filled_size: 10.0,
             acc_filled_size: 10.0,
             price: 100.0,
@@ -398,14 +406,17 @@ mod tests {
         assert_eq!(events.len(), 1);
 
         let order_id = match &events[0] {
-            ClientEvent::PlaceOrder(Order::Limit(order)) => order.order_id,
+            ClientEvent::PlaceOrder(Order::Limit(order)) => {
+                executor.update(&BrokerEvent::Placed(*order));
+                order.order_id
+            }
             _ => panic!("Expected PlaceOrder event"),
         };
 
         // Simulate a partial fill
         let fill = Fill {
             order_id,
-            instrument_id: "TEST_INST".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             filled_size: 5.0,
             acc_filled_size: 5.0,
             price: 100.0,
@@ -425,7 +436,7 @@ mod tests {
 
         let events = executor.on_signal(Some(Signal::Long));
         assert_eq!(events.len(), 1);
-        assert!(matches!(events[0], ClientEvent::ModifyOrder(_)));
+        assert!(matches!(events[0], ClientEvent::AmendOrder(_)));
     }
 
     #[test]
@@ -446,7 +457,7 @@ mod tests {
         // Simulate a fill
         let fill = Fill {
             order_id,
-            instrument_id: "TEST_INST".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             filled_size: 10.0,
             acc_filled_size: 10.0,
             price: 100.0,
@@ -498,6 +509,7 @@ mod tests {
                 assert!(order.side); // 确认是买单
                 assert_eq!(order.price, 100.0); // 买价
                 assert_eq!(order.size, 10.0); // 规模：1000/100=10
+                executor.update(&BrokerEvent::Placed(*order));
                 order.order_id
             }
             _ => panic!("Expected PlaceOrder event"),
@@ -506,7 +518,7 @@ mod tests {
         // 3. 部分成交
         let fill1 = Fill {
             order_id: buy_order_id,
-            instrument_id: "TEST_INST".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             filled_size: 4.0,
             acc_filled_size: 4.0,
             price: 100.0,
@@ -530,7 +542,10 @@ mod tests {
         assert_eq!(events.len(), 2); // 取消旧单 + 下新单
 
         // 确认取消旧订单
-        assert!(matches!(events[0], ClientEvent::CancelOrder(id) if id == buy_order_id));
+        assert!(matches!(events[0], ClientEvent::CancelOrder(id) if {
+            executor.update(&BrokerEvent::Canceled(id));
+            id == buy_order_id
+        }));
 
         // 获取新卖单ID
         let sell_order_id = match &events[1] {
@@ -539,6 +554,7 @@ mod tests {
                 assert_eq!(order.price, 100.0); // 卖价
                 // 规模：原有持仓(4.0) + 新空头规模(1000/100=10.0) = 14.0
                 assert_eq!(order.size, 14.0);
+                executor.update(&BrokerEvent::Placed(*order));
                 order.order_id
             }
             _ => panic!("Expected PlaceOrder event"),
@@ -547,7 +563,7 @@ mod tests {
         // 6. 部分成交卖单
         let fill2 = Fill {
             order_id: sell_order_id,
-            instrument_id: "TEST_INST".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             filled_size: 8.0,
             acc_filled_size: 8.0,
             price: 100.0,
@@ -569,7 +585,8 @@ mod tests {
         assert_eq!(events.len(), 1); // 维持现有持仓，但取消挂单
         match events[0] {
             ClientEvent::CancelOrder(order_id) => {
-                assert_eq!(order_id, 1 << 16 | 123)
+                assert_eq!(order_id, 1 << 16 | 123);
+                executor.update(&BrokerEvent::Canceled(order_id));
             }
             _ => panic!("Expected CancelOrder event"),
         }
@@ -587,6 +604,7 @@ mod tests {
                 assert!(order.side); // 买单平空仓
                 assert_eq!(order.price, 97.0); // 买价
                 assert_eq!(order.size, 4.0); // 平掉全部-4.0持仓
+                executor.update(&BrokerEvent::Placed(*order));
                 order.order_id
             }
             _ => panic!("Expected PlaceOrder event"),
@@ -595,7 +613,7 @@ mod tests {
         // 11. 平仓完全成交
         let fill3 = Fill {
             order_id: close_order_id,
-            instrument_id: "TEST_INST".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             filled_size: 4.0,
             acc_filled_size: 4.0,
             price: 97.0,

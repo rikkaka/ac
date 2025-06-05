@@ -8,6 +8,7 @@ use anyhow::Result;
 use futures::{Sink, Stream, ready};
 use futures_util::SinkExt;
 use pin_project::pin_project;
+use serde::Serialize;
 use serde_json::json;
 use tokio_tungstenite::{
     connect_async,
@@ -17,6 +18,7 @@ use types::{Data, Push};
 
 use crate::{
     delegate_sink,
+    okx_api::types::{OrderRequest, SubscribeArg},
     types::InstId,
     utils::{AutoReconnect, Duplex, Heartbeat},
 };
@@ -45,12 +47,6 @@ impl OkxWsEndpoint {
     }
 }
 
-#[derive(Clone)]
-pub struct SubscribeArg<'a> {
-    pub channel: &'a str,
-    pub instId: &'a str
-}
-
 #[pin_project]
 pub struct OkxWsStream<S>
 where
@@ -63,8 +59,8 @@ where
 
 pub async fn connect(
     endpoint: OkxWsEndpoint,
-    subscribe_args: Vec<SubscribeArg<'static>>
-) -> Result<impl Duplex<Message, tungstenite::Error, (InstId, Data)>> {
+    subscribe_args: Vec<SubscribeArg<'static>>,
+) -> Result<impl Duplex<Message, tungstenite::Error, Data>> {
     let make_connection = move || {
         let subscribe_args = subscribe_args.clone();
         async move {
@@ -94,7 +90,7 @@ where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
     /// 返回 (instrument_id, data)
-    type Item = (InstId, Data);
+    type Item = Data;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
@@ -138,9 +134,9 @@ where
             }
 
             // 6. 数据帧
-            match (push.data, push.arg.channel.as_str()) {
-                (Some(raw), channel) => match Data::try_from_raw(raw[0], channel) {
-                    Ok(data) => return Poll::Ready(Some((push.arg.instId, data))),
+            match push.data {
+                Some(raw) => match Data::try_from_raw(raw[0], push.arg) {
+                    Ok(data) => return Poll::Ready(Some(data)),
                     Err(e) => {
                         tracing::info!("Fail to deserialize data: {e}");
                         continue;
@@ -155,22 +151,30 @@ where
     }
 }
 
-pub async fn subscribe<S>(ws_sink: &mut S, args: &Vec<SubscribeArg<'_>>) -> Result<()>
+pub async fn subscribe<S>(ws_sink: &mut S, args: &[SubscribeArg<'_>]) -> Result<()>
 where
     S: Sink<Message> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
-{   
+{
     for arg in args {
         let param = json!({
             "op": "subscribe",
-            "args": [{
-                "channel": arg.channel,
-                "instId": arg.instId
-            }]
+            "args": [arg]
         })
         .to_string();
         ws_sink.send(param.into()).await?;
     }
+
+    Ok(())
+}
+
+pub async fn order_request<S, OA: Serialize>(ws_sink: &mut S, param: OrderRequest<OA>) -> Result<()>
+where
+    S: Sink<Message> + Unpin,
+    S::Error: std::error::Error + Send + Sync + 'static,
+{
+    let param = serde_json::to_string(&param)?;
+    ws_sink.send(param.into()).await?;
 
     Ok(())
 }

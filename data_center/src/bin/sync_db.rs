@@ -3,10 +3,7 @@ use futures::future::join_all;
 use sqlx::Executor;
 
 const REMOTE_SCHEMA: &str = "remote_import";
-const TABLES: &[&str] = &[
-    "okx_bbo",
-    // "okx_trades"
-];
+const TABLES: &[&str] = &["okx_bbo", "okx_trades"];
 
 #[tokio::main]
 async fn main() {

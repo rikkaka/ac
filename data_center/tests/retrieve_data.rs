@@ -1,14 +1,15 @@
 use chrono::{Duration, Utc};
 use data_center::{
     self,
-    sql::{query_bbo, query_level1, QueryOption},
+    sql::{QueryOption, query_bbo, query_level1},
+    types::InstId,
 };
 use futures::{StreamExt, pin_mut};
 
 // #[tokio::test]
 async fn test_retrieve_bbo() {
     let query_option = QueryOption {
-        instruments: vec!["ETH-USDT-SWAP".try_into().unwrap()],
+        instruments: vec![InstId::EthUsdtSwap],
         start: None,
         end: None,
     };
@@ -17,16 +18,12 @@ async fn test_retrieve_bbo() {
     pin_mut!(bbo_stream);
     let data = bbo_stream.next().await;
     assert!(dbg!(data).is_some());
-
-    while let Some(data) = bbo_stream.next().await {
-        
-    }
 }
 
 // #[tokio::test]
 async fn test_retrieve_level1() {
     let query_option = QueryOption {
-        instruments: vec!["ETH-USDT-SWAP".try_into().unwrap()],
+        instruments: vec![InstId::EthUsdtSwap],
         start: None,
         end: None,
     };

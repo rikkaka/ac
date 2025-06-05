@@ -1,13 +1,30 @@
 use std::task::Poll;
 
-use arrayvec::ArrayString;
 use either::Either;
 use futures::{Stream, ready};
 use pin_project::pin_project;
+use serde::{Deserialize, Serialize};
+use smartstring::alias::String;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use utils::Timestamped;
 
-pub type InstId = ArrayString<28>;
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
+#[serde(rename_all = "SCREAMING-KEBAB-CASE")]
+pub enum InstId {
+    #[default]
+    EthUsdtSwap,
+    BtcUsdtSwap,
+}
+
+impl InstId {
+    #[inline]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::EthUsdtSwap => "ETH-USDT-SWAP",
+            Self::BtcUsdtSwap => "BTC-USDT-SWAP",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Trade {
@@ -54,8 +71,9 @@ impl FromRow<'_, PgRow> for Trade {
     fn from_row(row: &'_ PgRow) -> Result<Self, sqlx::Error> {
         Ok(Trade {
             ts: row.try_get("ts")?,
-            instrument_id: row.try_get::<&str, _>("instrument_id")?.try_into().unwrap(),
-            trade_id: row.try_get("trade_id")?,
+            instrument_id: serde_plain::from_str(row.try_get::<&str, _>("instrument_id")?)
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            trade_id: row.try_get::<&str, _>("trade_id")?.into(),
             price: row.try_get("price")?,
             size: row.try_get("size")?,
             side: row.try_get("side")?,
@@ -68,7 +86,8 @@ impl FromRow<'_, PgRow> for Bbo {
     fn from_row(row: &'_ PgRow) -> Result<Self, sqlx::Error> {
         Ok(Bbo {
             ts: row.try_get("ts")?,
-            instrument_id: row.try_get::<&str, _>("instrument_id")?.try_into().unwrap(),
+            instrument_id: serde_plain::from_str(row.try_get::<&str, _>("instrument_id")?)
+                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
             best_ask: Level {
                 price: row.try_get("price_ask")?,
                 size: row.try_get("size_ask")?,
@@ -100,6 +119,8 @@ pub struct Level1 {
     bbo: Bbo,
     last_price: f64,
     volume: f64,
+    buying_volume: f64,
+    selling_volume: f64,
 }
 
 #[pin_project]
@@ -109,6 +130,8 @@ pub struct Level1Stream<S> {
 
     weighted_price: f64,
     volume: f64,
+    buying_volume: f64,
+    selling_volume: f64,
 }
 
 impl<S> Level1Stream<S>
@@ -120,6 +143,8 @@ where
             bbo_trade_stream,
             weighted_price: 0.,
             volume: 0.,
+            buying_volume: 0.,
+            selling_volume: 0.,
         }
     }
 }
@@ -147,15 +172,24 @@ where
                         bbo,
                         last_price: *this.weighted_price,
                         volume: *this.volume,
+                        buying_volume: *this.buying_volume,
+                        selling_volume: *this.selling_volume,
                     };
                     *this.weighted_price = 0.;
                     *this.volume = 0.;
                     return Poll::Ready(Some(level1));
                 }
                 Either::Right(trade) => {
-                    *this.weighted_price = (*this.weighted_price * *this.volume +trade.price * trade.size)
-                        / (trade.size + *this.volume);
-                    *this.volume += trade.size * trade.price;
+                    let size = trade.size * trade.order_count as f64;
+                    *this.weighted_price = (*this.weighted_price * *this.volume
+                        + trade.price * size)
+                        / (*this.volume + size);
+                    *this.volume += size;
+                    if trade.side {
+                        *this.buying_volume += trade.size
+                    } else {
+                        *this.selling_volume += trade.size
+                    }
                 }
             }
         }

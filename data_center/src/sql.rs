@@ -39,7 +39,7 @@ pub async fn insert_trade(trade: &Trade) -> Result<()> {
         ON CONFLICT DO NOTHING",
         trade.ts,
         trade.instrument_id.as_str(),
-        trade.trade_id,
+        trade.trade_id.as_str(),
         trade.price,
         trade.size,
         trade.side,

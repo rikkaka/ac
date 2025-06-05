@@ -1,17 +1,17 @@
 use std::path::Path;
 
+use ac_core::InstId;
 use ac_core::{
     Engine,
     backtest::{SandboxBroker, TransactionCostModel},
     data::okx::get_bbo_history_provider,
     strategy::single_ticker::ofi_momentum::OfiMomentumArgs,
 };
-use arrayvec::ArrayString;
 use chrono::Duration;
 
 #[tokio::main]
 async fn main() {
-    let instrument_id = ArrayString::try_from("ETH-USDT-SWAP").unwrap();
+    let instrument_id = InstId::EthUsdtSwap;
     let instruments = vec![instrument_id];
 
     let data_provider = get_bbo_history_provider(instruments.clone(), Duration::hours(2400));

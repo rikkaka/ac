@@ -1,4 +1,3 @@
-
 pub struct Ema {
     /// The smoothing time constant (tau).
     tau: f64,
@@ -29,7 +28,7 @@ impl Ema {
             None => sample,
         };
         self.mean = Some(new_mean);
-        
+
         new_mean
     }
 
@@ -38,7 +37,6 @@ impl Ema {
         self.mean
     }
 }
-
 
 /// Expoential moving average and variance
 pub struct Emav {
@@ -54,7 +52,11 @@ impl Emav {
     /// Create a new EMA+variance with given time constant tau.
     pub fn new(tau: f64) -> Self {
         assert!(tau > 0.0, "tau must be positive");
-        Emav { tau, mean: None, mean_sq: None }
+        Emav {
+            tau,
+            mean: None,
+            mean_sq: None,
+        }
     }
 
     /// Reset EMA and variance with an initial sample.

@@ -12,5 +12,5 @@ IMPORT FOREIGN SCHEMA public
 FROM SERVER remote_server
 INTO 本地schema名;
 
-ALTER FOREIGN SERVER remote_server OPTIONS (fetch_size '1000000');
-ALTER FOREIGN SERVER remote_server OPTIONS (async_capable 'true');
+ALTER SERVER remote_server OPTIONS (fetch_size '1000000');
+ALTER SERVER remote_server OPTIONS (async_capable 'true');

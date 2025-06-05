@@ -28,7 +28,4 @@ pub struct State {
     portfolio: Portfolio,
 }
 
-impl State {
-    
-}
-
+impl State {}

@@ -6,14 +6,13 @@ mod utils;
 use std::marker::PhantomData;
 
 use ::utils::Duplex;
-use arrayvec::ArrayString;
 use float_cmp::approx_eq;
 use futures::{Stream, StreamExt};
 use rustc_hash::FxHashMap;
 
 use crate::strategy::Strategy;
 
-type InstId = ArrayString<28>;
+pub use data_center::types::InstId;
 
 pub trait DataProvider<D>: Stream<Item = D> + Unpin + Send {}
 impl<D, S> DataProvider<D> for S where S: Stream<Item = D> + Unpin + Send {}
@@ -109,7 +108,7 @@ impl LimitOrder {
         }
     }
 
-    pub fn modified(&mut self, new_size: f64, new_price: f64) -> Self {
+    pub fn amended(&mut self, new_size: f64, new_price: f64) -> Self {
         self.size = self.filled_size + new_size;
         self.price = new_price;
         *self
@@ -164,6 +163,9 @@ pub struct Fill {
 pub enum BrokerEvent<D> {
     Data(D),
     Fill(Fill),
+    Placed(LimitOrder),
+    Modified(LimitOrder),
+    Canceled(OrderId),
 }
 
 impl<D> BrokerEvent<D> {
@@ -178,13 +180,22 @@ impl<D> BrokerEvent<D> {
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
     PlaceOrder(Order),
-    ModifyOrder(Order),
+    AmendOrder(Order),
     CancelOrder(OrderId),
 }
 
 impl ClientEvent {
     pub fn place_limit_order(limit_order: LimitOrder) -> Self {
         Self::PlaceOrder(Order::Limit(limit_order))
+    }
+
+    pub fn is_order_event(&self) -> bool {
+        match self {
+            ClientEvent::PlaceOrder(_)
+            | &ClientEvent::AmendOrder(_)
+            | &ClientEvent::CancelOrder(_) => true,
+            // _ => false
+        }
     }
 }
 
@@ -196,6 +207,7 @@ pub trait Broker<D>: Duplex<Vec<ClientEvent>, anyhow::Error, BrokerEvent<D>> {
             self.on_client_event(event);
         }
     }
+    fn now(&self) -> Timestamp;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -296,7 +308,7 @@ where
             let Some(broker_event) = self.broker.next().await else {
                 break;
             };
-            let client_events = self.strategy.on_event(&broker_event);
+            let client_events = self.strategy.on_event(&broker_event, self.broker.now());
             self.broker.on_client_events(client_events.into_iter());
         }
     }
@@ -347,7 +359,7 @@ mod tests {
         let mut portfolio = Portfolio::new();
         let fill1 = Fill {
             order_id: 1,
-            instrument_id: "AAPL".try_into().unwrap(),
+            instrument_id: InstId::BtcUsdtSwap,
             side: true,
             price: 150.0,
             filled_size: 10.0,
@@ -360,7 +372,7 @@ mod tests {
 
         let fill2 = Fill {
             order_id: 2,
-            instrument_id: "AAPL".try_into().unwrap(),
+            instrument_id: InstId::BtcUsdtSwap,
             side: false,
             price: 155.0,
             filled_size: 5.0,
@@ -373,7 +385,7 @@ mod tests {
 
         let fill3 = Fill {
             order_id: 3,
-            instrument_id: "GOOGL".try_into().unwrap(),
+            instrument_id: InstId::EthUsdtSwap,
             side: true,
             price: 2800.0,
             filled_size: 2.0,
@@ -385,8 +397,8 @@ mod tests {
         assert_eq!(portfolio.positions.len(), 2);
 
         let mut inst_price = FxHashMap::default();
-        inst_price.insert("AAPL".try_into().unwrap(), 160.0);
-        inst_price.insert("GOOGL".try_into().unwrap(), 2900.0);
+        inst_price.insert(InstId::BtcUsdtSwap, 160.0);
+        inst_price.insert(InstId::EthUsdtSwap, 2900.0);
         let value = portfolio.get_value(&FxHashMap::from(inst_price));
         assert_eq!(value, 5.0 * 160.0 + 2.0 * 2900.0);
     }

@@ -1,9 +1,13 @@
-use std::{sync::{atomic::{AtomicU64, Ordering}, Arc}, time::Duration};
+use std::time::Duration;
 
 use anyhow::Result;
 use data_center::{
-    okx_api::{self, types::Data, OkxWsEndpoint, SubscribeArg},
-    sql, 
+    okx_api::{
+        self, OkxWsEndpoint,
+        types::{Data, SubscribeArg},
+    },
+    sql,
+    types::Trade,
 };
 use futures_util::StreamExt;
 
@@ -19,23 +23,12 @@ async fn main() {
 async fn main_task() -> Result<()> {
     let mut subscribe_args = vec![];
     for inst_id in INSTRUMENTS {
-        subscribe_args.push(SubscribeArg {
-            channel: "trades",
-            instId: inst_id
-        });
-        subscribe_args.push(SubscribeArg {
-            channel: "bbo-tbt",
-            instId: inst_id
-        })
+        subscribe_args.push(SubscribeArg::new_trades(inst_id));
+        subscribe_args.push(SubscribeArg::new_bbo_tbt(inst_id))
     }
     let mut okx_ws = okx_api::connect(OkxWsEndpoint::Public, subscribe_args).await?;
-    
-    let last_data_ts = Arc::new(AtomicU64::new(0));
 
-    while let Some((instrument_id, data)) = okx_ws.next().await {
-        let now = chrono::Utc::now().timestamp_millis() as u64;
-        last_data_ts.store(now, Ordering::Relaxed);
-
+    while let Some(data) = okx_ws.next().await {
         match data {
             Data::Trades(data) => {
                 let Ok(trade) = data.try_into_trade() else {
@@ -46,8 +39,8 @@ async fn main_task() -> Result<()> {
                     tracing::error!("Failed to insert trade data: {e}");
                 }
             }
-            Data::BboTbt(data) => {
-                let Ok(bbo) = data.try_into_bbo(instrument_id) else {
+            Data::BboTbt(inst_id, data) => {
+                let Ok(bbo) = data.try_into_bbo(inst_id) else {
                     tracing::error!("Failed to parse bbo data");
                     continue;
                 };
@@ -55,10 +48,9 @@ async fn main_task() -> Result<()> {
                     tracing::error!("Failed to insert bbo data: {e}");
                 }
             }
+            _ => unreachable!(),
         }
     }
 
-    let last = last_data_ts.load(Ordering::Relaxed);
-    let now = chrono::Utc::now().timestamp_millis() as u64;
-    anyhow::bail!("WebSocket stream closed. Last data timestamp: {last}, now: {now}");
+    Ok(())
 }

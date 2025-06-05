@@ -8,8 +8,7 @@ use crate::types::InstId;
 
 pub static INSTRUMENT_PROFILES: Lazy<InstrumentProfiles> = Lazy::new(|| {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let profiles_path = Path::new(manifest_dir)
-        .join("instrument_profiles.toml");
+    let profiles_path = Path::new(manifest_dir).join("instrument_profiles.toml");
     let profiles_str = fs::read_to_string(profiles_path).unwrap();
     toml::from_str(&profiles_str).unwrap()
 });
