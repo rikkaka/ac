@@ -51,10 +51,10 @@ impl From<data_center::types::Bbo> for Bbo {
         Self {
             ts: bbo.ts as u64,
             instrument_id: bbo.instrument_id,
-            bid_price: bbo.best_bid.price,
-            bid_size: bbo.best_bid.size,
-            ask_price: bbo.best_ask.price,
-            ask_size: bbo.best_ask.size,
+            bid_price: bbo.bid_price,
+            bid_size: bbo.bid_size,
+            ask_price: bbo.ask_price,
+            ask_size: bbo.ask_size,
         }
     }
 }

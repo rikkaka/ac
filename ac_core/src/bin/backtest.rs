@@ -11,6 +11,8 @@ use chrono::Duration;
 
 #[tokio::main]
 async fn main() {
+    let _guard = utils::init_tracing();
+
     let instrument_id = InstId::EthUsdtSwap;
     let instruments = vec![instrument_id];
 

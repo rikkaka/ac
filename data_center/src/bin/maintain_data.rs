@@ -2,11 +2,9 @@ use std::time::Duration;
 
 use anyhow::Result;
 use data_center::{
-    okx_api::{
-        self, OkxWsEndpoint,
-        types::{Data, SubscribeArg},
-    },
+    okx_api::{self, OkxWsEndpoint, actions::SubscribeArg},
     sql,
+    types::Data,
 };
 use futures_util::StreamExt;
 
@@ -29,20 +27,12 @@ async fn main_task() -> Result<()> {
 
     while let Some(data) = okx_ws.next().await {
         match data {
-            Data::Trades(data) => {
-                let Ok(trade) = data.try_into_trade() else {
-                    tracing::error!("Failed to parse trade data");
-                    continue;
-                };
+            Data::Trade(trade) => {
                 if let Err(e) = sql::insert_trade(&trade).await {
                     tracing::error!("Failed to insert trade data: {e}");
                 }
             }
-            Data::BboTbt(inst_id, data) => {
-                let Ok(bbo) = data.try_into_bbo(inst_id) else {
-                    tracing::error!("Failed to parse bbo data");
-                    continue;
-                };
+            Data::Bbo(bbo) => {
                 if let Err(e) = sql::insert_bbo(&bbo).await {
                     tracing::error!("Failed to insert bbo data: {e}");
                 }

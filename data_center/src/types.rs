@@ -3,18 +3,13 @@ use std::task::Poll;
 use either::Either;
 use futures::{Stream, ready};
 use pin_project::pin_project;
-use serde::{Deserialize, Serialize};
 use smartstring::alias::String;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use utils::Timestamped;
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]
-#[serde(rename_all = "SCREAMING-KEBAB-CASE")]
-pub enum InstId {
-    #[default]
-    EthUsdtSwap,
-    BtcUsdtSwap,
-}
+use crate::okx_api::types::{ExecType, OrderState};
+
+pub use crate::okx_api::types::InstId;
 
 impl InstId {
     #[inline]
@@ -24,6 +19,12 @@ impl InstId {
             Self::BtcUsdtSwap => "BTC-USDT-SWAP",
         }
     }
+}
+
+pub enum Data {
+    Trade(Trade),
+    Bbo(Bbo),
+    Order(OrderPush)
 }
 
 #[derive(Debug, Clone)]
@@ -57,14 +58,31 @@ pub struct Bbo {
     /// Unix millis timestamp
     pub ts: i64,
     pub instrument_id: InstId,
-    pub best_ask: Level,
-    pub best_bid: Level,
+    pub bid_price: f64,
+    pub bid_size: f64,
+    pub bid_order_count: i32,
+    pub ask_price: f64,
+    pub ask_size: f64,
+    pub ask_order_count: i32,
 }
 
 impl Timestamped for Bbo {
     fn get_ts(&self) -> i64 {
         self.ts
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct OrderPush {
+    pub order_id: String,
+    pub state: OrderState,
+    pub size: f64,
+    pub filled_size: f64,
+    pub acc_filled_size: f64,
+    pub price: f64,
+    pub side: bool,
+    pub exec_type: Option<ExecType>,
+    pub is_amended: bool,
 }
 
 impl FromRow<'_, PgRow> for Trade {
@@ -88,16 +106,12 @@ impl FromRow<'_, PgRow> for Bbo {
             ts: row.try_get("ts")?,
             instrument_id: serde_plain::from_str(row.try_get::<&str, _>("instrument_id")?)
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-            best_ask: Level {
-                price: row.try_get("price_ask")?,
-                size: row.try_get("size_ask")?,
-                order_count: row.try_get("order_count_ask")?,
-            },
-            best_bid: Level {
-                price: row.try_get("price_bid")?,
-                size: row.try_get("size_bid")?,
-                order_count: row.try_get("order_count_bid")?,
-            },
+                ask_price: row.try_get("price_ask")?,
+                ask_size: row.try_get("size_ask")?,
+                ask_order_count: row.try_get("order_count_ask")?,
+                bid_price: row.try_get("price_bid")?,
+                bid_size: row.try_get("size_bid")?,
+                bid_order_count: row.try_get("order_count_bid")?,
         })
     }
 }

@@ -1,24 +1,32 @@
-#![allow(non_snake_case)]
-pub mod types;
+pub mod actions;
+pub(crate) mod pushes;
+pub(crate) mod types;
 
 use core::{pin::Pin, task::Poll};
 use std::{task::Context, time::Duration};
 
+use crate::{
+    okx_api::{
+        actions::SubscribeArg,
+        types::{Channel, InstType},
+    },
+    types::Data,
+};
 use anyhow::Result;
 use futures::{Sink, Stream, ready};
 use futures_util::SinkExt;
 use pin_project::pin_project;
+use pushes::Push;
 use serde::Serialize;
 use serde_json::json;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{self, Message},
 };
-use types::{Data, Push};
 
 use crate::{
     delegate_sink,
-    okx_api::types::{OrderRequest, SubscribeArg},
+    okx_api::actions::OrderRequest,
     utils::{AutoReconnect, Duplex, Heartbeat},
 };
 
@@ -133,16 +141,10 @@ where
             }
 
             // 6. 数据帧
-            match push.data {
-                Some(raw) => match Data::try_from_raw(raw[0], push.arg) {
-                    Ok(data) => return Poll::Ready(Some(data)),
-                    Err(e) => {
-                        tracing::info!("Fail to deserialize data: {e}");
-                        continue;
-                    }
-                },
-                _ => {
-                    tracing::info!("Push without data: {push:#?}");
+            match Data::try_from_okx_push(push) {
+                Ok(data) => return Poll::Ready(Some(data)),
+                Err(e) => {
+                    tracing::info!("Fail to deserialize data: {e}");
                     continue;
                 }
             }

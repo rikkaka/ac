@@ -59,12 +59,12 @@ pub async fn insert_bbo(bbo: &Bbo) -> Result<()> {
         ON CONFLICT DO NOTHING",
         bbo.ts,
         bbo.instrument_id.as_str(),
-        bbo.best_ask.price,
-        bbo.best_ask.size,
-        bbo.best_ask.order_count,
-        bbo.best_bid.price,
-        bbo.best_bid.size,
-        bbo.best_bid.order_count
+        bbo.ask_price,
+        bbo.ask_size,
+        bbo.ask_order_count,
+        bbo.bid_price,
+        bbo.bid_size,
+        bbo.bid_order_count
     )
     .execute(&*POOL)
     .await?;

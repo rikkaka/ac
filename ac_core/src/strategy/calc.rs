@@ -12,11 +12,6 @@ impl Ema {
         Self { tau, mean: None }
     }
 
-    /// Reset EMA and variance with an initial sample.
-    pub fn reset(&mut self, init: f64) {
-        self.mean = Some(init);
-    }
-
     /// Update with a new sample at time interval dt.
     /// Returns a tuple (mean, variance).
     #[inline]
@@ -57,12 +52,6 @@ impl Emav {
             mean: None,
             mean_sq: None,
         }
-    }
-
-    /// Reset EMA and variance with an initial sample.
-    pub fn reset(&mut self, init: f64) {
-        self.mean = Some(init);
-        self.mean_sq = Some(init * init);
     }
 
     /// Update with a new sample at time interval dt.

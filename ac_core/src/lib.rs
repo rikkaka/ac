@@ -108,7 +108,7 @@ impl LimitOrder {
         }
     }
 
-    pub fn amended(&mut self, new_size: f64, new_price: f64) -> Self {
+    pub fn modified(&mut self, new_size: f64, new_price: f64) -> Self {
         self.size = self.filled_size + new_size;
         self.price = new_price;
         *self

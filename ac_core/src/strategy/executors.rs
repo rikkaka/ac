@@ -61,7 +61,7 @@ impl NaiveLimitExecutor {
             instrument_id,
             notional,
             size_digits,
-            size_eps: 10f64.powi(-{ size_digits }),
+            size_eps: 10f64.powi(-(size_digits as i32)),
             notional_threshold: 0.05 * notional,
             price_offset,
             price_digits,
@@ -149,8 +149,8 @@ impl NaiveLimitExecutor {
                 epsilon = self.size_eps
             ) || old_order.price != price
             {
-                let amended_order = old_order.amended(new_size, price);
-                return vec![ClientEvent::AmendOrder(Order::Limit(amended_order))];
+                let modified_order = old_order.modified(new_size, price);
+                return vec![ClientEvent::AmendOrder(Order::Limit(modified_order))];
             }
 
             // 两个思路：1：在收到信号后，在信号改变前，维持最初的挂单，不改单；
@@ -328,7 +328,7 @@ mod tests {
             ClientEvent::PlaceOrder(Order::Limit(order)) => {
                 executor.update(&BrokerEvent::Placed(*order));
                 order.order_id
-            }
+            },
             _ => panic!("Expected PlaceOrder event"),
         };
 

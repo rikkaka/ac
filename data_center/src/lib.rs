@@ -12,4 +12,4 @@ pub struct Terminal<HS, WS> {
     ws_stream: WS,
 }
 
-// impl<HS, WS> Terminal<HS, WS> where HS: Stream<Item =
+// impl<HS, WS> Terminal<HS, WS> where HS: Stream<Item = Data
