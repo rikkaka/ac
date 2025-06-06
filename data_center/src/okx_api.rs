@@ -6,8 +6,11 @@ pub(crate) mod types;
 use core::{pin::Pin, task::Poll};
 use std::{task::Context, time::Duration};
 
-use crate::{okx_api::actions::SubscribeArg, types::Data};
-use anyhow::Result;
+use crate::{
+    okx_api::actions::{Action, SubscribeArg},
+    types::Data,
+};
+use anyhow::{Result, anyhow};
 use futures::{Sink, Stream, ready};
 use futures_util::SinkExt;
 use pin_project::pin_project;
@@ -61,17 +64,18 @@ where
 
 pub async fn connect(
     endpoint: OkxWsEndpoint,
-    subscribe_requests: &[Request<SubscribeArg>],
-) -> Result<impl Duplex<Message, tungstenite::Error, Data>> {
+    subscribe_actions: Vec<Action>,
+) -> Result<impl Duplex<Action, anyhow::Error, Data>> {
     let make_connection = move || {
-        let subscribe_args = subscribe_requests;
+        let subscribe_actions = subscribe_actions.clone();
         async move {
             let (ws_stream, _) = connect_async(endpoint.url()).await?;
-            let mut ws_stream = with_heartbeat(ws_stream);
-            for request in subscribe_args {
-                send_request(&mut ws_stream, request).await?;
+            let ws_stream = with_heartbeat(ws_stream);
+            let mut ws_stream = OkxWsStream { inner: ws_stream };
+            for request in subscribe_actions {
+                ws_stream.send(request).await?
             }
-            Ok::<_, anyhow::Error>(OkxWsStream { inner: ws_stream })
+            Ok(ws_stream)
         }
     };
 
@@ -80,20 +84,54 @@ pub async fn connect(
     Ok(ws_stream)
 }
 
-impl<S> Sink<Message> for OkxWsStream<S>
+impl<S> Sink<Action> for OkxWsStream<S>
 where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
-    type Error = tungstenite::Error;
+    type Error = anyhow::Error;
 
-    delegate_sink!(inner, Message);
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        let mut this = self.project();
+        ready!(this.inner.as_mut().poll_ready(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Action) -> std::result::Result<(), Self::Error> {
+        let mut this = self.project();
+        let message = item.to_message();
+        tracing::debug!("Send message: {message:?}");
+        this.inner
+            .as_mut()
+            .start_send(message)
+            .map_err(|e| anyhow!("Failed to send message: {e}"))
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        let mut this = self.project();
+        ready!(this.inner.as_mut().poll_flush(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        let mut this = self.project();
+        ready!(this.inner.as_mut().poll_close(cx))?;
+        Poll::Ready(Ok(()))
+    }
 }
 
 impl<S> Stream for OkxWsStream<S>
 where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
-    /// 返回 (instrument_id, data)
     type Item = Data;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -147,17 +185,6 @@ where
             }
         }
     }
-}
-
-pub async fn send_request<S, A: Serialize>(ws_sink: &mut S, param: &Request<A>) -> Result<()>
-where
-    S: Sink<Message> + Unpin,
-    S::Error: std::error::Error + Send + Sync + 'static,
-{
-    let param = serde_json::to_string(param)?;
-    ws_sink.send(param.into()).await?;
-
-    Ok(())
 }
 
 pub fn with_heartbeat<S>(ws_stream: S) -> Heartbeat<S>

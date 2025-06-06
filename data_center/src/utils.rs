@@ -1,7 +1,6 @@
 use anyhow::Result;
 use futures::{Sink, Stream, ready};
 use pin_project::pin_project;
-use utils::Duplex;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::pin::Pin;
@@ -9,6 +8,7 @@ use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::time::Interval;
 use tokio_tungstenite::tungstenite::{self, Message};
+use utils::Duplex;
 
 #[macro_export]
 macro_rules! delegate_sink {
@@ -289,7 +289,7 @@ where
 mod tests {
     use super::*;
     use futures::{SinkExt, StreamExt, pin_mut, stream};
-    
+
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use tokio::sync::mpsc;

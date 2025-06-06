@@ -1,5 +1,8 @@
 use chrono::{Duration, Utc};
-use data_center::{okx_api, sql::{query_bbo, QueryOption}};
+use data_center::{
+    okx_api,
+    sql::{QueryOption, query_bbo},
+};
 use futures::StreamExt;
 
 use crate::{BrokerEvent, DataProvider, InstId};

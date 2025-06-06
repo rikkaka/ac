@@ -1,6 +1,121 @@
 use serde::{Deserialize, Serialize};
+use tokio_tungstenite::tungstenite::Message;
 
 use super::types::*;
+
+#[derive(Serialize, Clone)]
+pub enum Action {
+    SubscribeTrades(InstId),
+    SubscribeBboTbt(InstId),
+    SubscribeOrders(InstType, InstId),
+    LimitOrder {
+        request_id: String,
+        side: Side,
+        inst_id: InstId,
+        client_order_id: String,
+        size: String,
+        price: String,
+    },
+    MarketOrder {
+        request_id: String,
+        side: Side,
+        inst_id: InstId,
+        client_order_id: String,
+        size: String,
+    },
+    AmendOrder {
+        request_id: String,
+        inst_id: InstId,
+        client_order_id: String,
+        new_size: String,
+        new_price: String,
+    },
+    CancelOrder {
+        request_id: String,
+        inst_id: InstId,
+        client_order_id: String,
+    },
+}
+
+impl Action {
+    pub fn to_message(&self) -> Message {
+        match self {
+            Action::SubscribeTrades(inst_id) => {
+                serde_json::to_string(&Request::subscribe_trades(*inst_id))
+                    .unwrap()
+                    .into()
+            }
+            Action::SubscribeBboTbt(inst_id) => {
+                serde_json::to_string(&Request::subscribe_bbo_tbt(*inst_id))
+                    .unwrap()
+                    .into()
+            }
+            Action::SubscribeOrders(inst_type, inst_id) => {
+                serde_json::to_string(&Request::subscribe_orders(*inst_type, *inst_id))
+                    .unwrap()
+                    .into()
+            }
+            Action::LimitOrder {
+                request_id,
+                side,
+                inst_id,
+                client_order_id,
+                size,
+                price,
+            } => serde_json::to_string(&Request::limit_order(
+                request_id.clone(),
+                *side,
+                *inst_id,
+                client_order_id.clone(),
+                size.clone(),
+                price.clone(),
+            ))
+            .unwrap()
+            .into(),
+            Action::MarketOrder {
+                request_id,
+                side,
+                inst_id,
+                client_order_id,
+                size,
+            } => serde_json::to_string(&Request::market_order(
+                request_id.clone(),
+                *side,
+                *inst_id,
+                client_order_id.clone(),
+                size.clone(),
+            ))
+            .unwrap()
+            .into(),
+            Action::AmendOrder {
+                request_id,
+                inst_id,
+                client_order_id,
+                new_size,
+                new_price,
+            } => serde_json::to_string(&Request::amend_order(
+                request_id.clone(),
+                *inst_id,
+                client_order_id.clone(),
+                new_size.clone(),
+                new_price.clone(),
+            ))
+            .unwrap()
+            .into(),
+            Action::CancelOrder {
+                request_id,
+                inst_id,
+                client_order_id,
+            } => serde_json::to_string(&Request::cancel_order(
+                request_id.clone(),
+                *inst_id,
+                client_order_id.clone(),
+            ))
+            .unwrap()
+            .into(),
+        }
+    }
+}
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -29,13 +144,35 @@ pub struct SubscribeArg {
     inst_id: InstId,
 }
 
-impl Request<SubscribeArg> {
-    pub fn subscribe_trades(inst_id: InstId) -> Self {
-        let arg = SubscribeArg {
+impl SubscribeArg {
+    pub fn new_trades(inst_id: InstId) -> Self {
+        Self {
             channel: Channel::Trades,
             inst_type: None,
             inst_id,
-        };
+        }
+    }
+
+    pub fn new_bbo_tbt(inst_id: InstId) -> Self {
+        Self {
+            channel: Channel::BboTbt,
+            inst_type: None,
+            inst_id,
+        }
+    }
+
+    pub fn new_orders(inst_type: InstType, inst_id: InstId) -> Self {
+        Self {
+            channel: Channel::Orders,
+            inst_type: Some(inst_type),
+            inst_id,
+        }
+    }
+}
+
+impl Request<SubscribeArg> {
+    pub fn subscribe_trades(inst_id: InstId) -> Self {
+        let arg = SubscribeArg::new_trades(inst_id);
         Self {
             id: None,
             op: Op::Subscribe,
@@ -44,11 +181,7 @@ impl Request<SubscribeArg> {
     }
 
     pub fn subscribe_bbo_tbt(inst_id: InstId) -> Self {
-        let arg = SubscribeArg {
-            channel: Channel::BboTbt,
-            inst_type: None,
-            inst_id,
-        };
+        let arg = SubscribeArg::new_bbo_tbt(inst_id);
         Self {
             id: None,
             op: Op::Subscribe,
@@ -57,11 +190,7 @@ impl Request<SubscribeArg> {
     }
 
     pub fn subscribe_orders(inst_type: InstType, inst_id: InstId) -> Self {
-        let arg = SubscribeArg {
-            channel: Channel::Orders,
-            inst_type: Some(inst_type),
-            inst_id,
-        };
+        let arg = SubscribeArg::new_orders(inst_type, inst_id);
         Self {
             id: None,
             op: Op::Subscribe,

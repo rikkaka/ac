@@ -197,7 +197,7 @@ impl Executor<Bbo> for NaiveLimitExecutor {
                     }
                 }
             }
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -329,7 +329,7 @@ mod tests {
             ClientEvent::PlaceOrder(Order::Limit(order)) => {
                 executor.update(&BrokerEvent::Placed(Order::Limit(*order)));
                 order.order_id
-            },
+            }
             _ => panic!("Expected PlaceOrder event"),
         };
 

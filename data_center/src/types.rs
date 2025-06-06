@@ -7,7 +7,7 @@ use smartstring::alias::String;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use utils::Timestamped;
 
-pub use crate::okx_api::types::{InstId, OrdType, OrderState, ExecType};
+pub use crate::okx_api::types::{ExecType, InstId, OrdType, OrderState};
 
 impl InstId {
     #[inline]
@@ -90,7 +90,7 @@ pub enum OrderPushType {
     Placed,
     Amended,
     Canceled,
-    Fill
+    Fill,
 }
 
 impl FromRow<'_, PgRow> for Trade {

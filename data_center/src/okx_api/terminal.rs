@@ -2,9 +2,12 @@ use std::marker::PhantomData;
 
 use anyhow::Result;
 use chrono::Duration;
-use futures::{Sink, Stream, StreamExt, stream};
+use futures::{Sink, SinkExt, Stream, StreamExt, stream};
 use serde::Serialize;
+use tokio_tungstenite::tungstenite;
 use utils::Duplex;
+
+pub use super::actions::Action;
 
 use crate::{
     Data,
@@ -22,29 +25,29 @@ use crate::{
 // 推送的是可以直接拿去用的Data。
 pub struct Terminal<T> {
     history_stream: Box<dyn Stream<Item = Data>>,
-    ws_stream: Box<dyn Duplex<Request<T>, anyhow::Error, Data>>,
+    ws_stream: Box<dyn Duplex<Action, anyhow::Error, Data>>,
     _phantom_data: PhantomData<T>,
 }
 
 impl<T> Terminal<T>
 where
-    T: Serialize,
+    T: Serialize + Clone + 'static,
 {
     pub async fn new(
         endpoint: OkxWsEndpoint,
-        subscribe_request: Request<SubscribeArg>,
+        subscribe_action: Action,
         history_duration: Duration,
     ) -> Result<Self> {
-        if subscribe_request.channel() != Channel::BboTbt {
+        if !matches!(subscribe_action, Action::SubscribeBboTbt(_)) {
             unimplemented!()
         }
         let history_stream = query_bbo(
             QueryOption::new()
                 .with_instrument(InstId::EthUsdtSwap)
                 .with_duration(history_duration),
-        ).map(|bbo| Data::Bbo(bbo));
-        let subscribe_requests = [subscribe_request; 1];
-        let ws_stream = connect(endpoint, &subscribe_requests).await?;
+        )
+        .map(|bbo| Data::Bbo(bbo));
+        let ws_stream = connect(endpoint, vec![subscribe_action]).await?;
 
         Ok(Self {
             history_stream: Box::new(history_stream),

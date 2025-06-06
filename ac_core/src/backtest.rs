@@ -220,7 +220,8 @@ where
                         self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
                     } else {
                         self.limit_orders.insert(order.order_id, order);
-                        self.broker_events_buf.push_back(BrokerEvent::Placed(Order::Limit(order)));
+                        self.broker_events_buf
+                            .push_back(BrokerEvent::Placed(Order::Limit(order)));
                     }
                 }
             },
