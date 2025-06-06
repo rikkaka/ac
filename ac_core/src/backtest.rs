@@ -321,12 +321,10 @@ impl MatchOrder for Bbo {
         // 若是Maker，成交会是挂单价；若是Taker，成交价会是最优买卖价
         let price = if exec_type == ExecType::Maker {
             order.price
+        } else if order.side {
+            bbo.ask_price
         } else {
-            if order.side {
-                bbo.ask_price
-            } else {
-                bbo.bid_price
-            }
+            bbo.bid_price
         };
         // 若买单的价格高于最优卖单
         if (order.side && order.price >= bbo.ask_price)

@@ -12,18 +12,13 @@ use futures::{Sink, Stream, ready};
 use futures_util::SinkExt;
 use pin_project::pin_project;
 use pushes::Push;
-use serde::Serialize;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{self, Message},
 };
 use utils::Duplex;
 
-use crate::{
-    delegate_sink,
-    okx_api::actions::Request,
-    utils::{AutoReconnect, Heartbeat},
-};
+use crate::utils::{AutoReconnect, Heartbeat};
 
 const PUBLIC_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
 const PRIVATE_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/private";

@@ -30,8 +30,7 @@ pub enum Data {
 impl Data {
     pub fn try_from_push(push: Push) -> Result<Self> {
         let raw_data = push.data.ok_or(anyhow!("Push without data: {push:#?}"))?;
-        let raw_data = *raw_data
-            .get(0)
+        let raw_data = *raw_data.first()
             .ok_or(anyhow!("Push without data: {push:#?}"))?;
         let raw_data_str = raw_data.get();
         match push.arg.channel {

@@ -61,7 +61,7 @@ impl NaiveLimitExecutor {
             instrument_id,
             notional,
             size_digits,
-            size_eps: 10f64.powi(-(size_digits as i32)),
+            size_eps: 10f64.powi(-{ size_digits }),
             notional_threshold: 0.05 * notional,
             price_offset,
             price_digits,

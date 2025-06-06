@@ -2,18 +2,15 @@ use std::marker::PhantomData;
 
 use anyhow::Result;
 use chrono::Duration;
-use futures::{Sink, SinkExt, Stream, StreamExt, stream};
+use futures::{Stream, StreamExt};
 use serde::Serialize;
-use tokio_tungstenite::tungstenite;
 use utils::Duplex;
 
 use crate::{
     Data,
     okx_api::{
         OkxWsEndpoint,
-        actions::{Request, SubscribeArg},
         connect,
-        types::Channel,
     },
     sql::{QueryOption, query_bbo},
     types::{Action, InstId},
@@ -44,7 +41,7 @@ where
                 .with_instrument(InstId::EthUsdtSwap)
                 .with_duration(history_duration),
         )
-        .map(|bbo| Data::Bbo(bbo));
+        .map(Data::Bbo);
         let ws_stream = connect(endpoint, vec![subscribe_action]).await?;
 
         Ok(Self {
