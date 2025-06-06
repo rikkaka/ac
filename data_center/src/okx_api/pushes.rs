@@ -1,3 +1,5 @@
+use std::u64;
+
 use anyhow::{Ok, Result, anyhow};
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -21,47 +23,48 @@ pub struct Push<'a> {
     pub data: Option<[&'a RawValue; 1]>,
 }
 
-pub enum Data {
+pub enum OkxData {
     Trades(TradesData),
     BboTbt(InstId, DepthData),
     Orders(InstId, OrdersData),
 }
 
-impl Data {
+impl OkxData {
     pub fn try_from_push(push: Push) -> Result<Self> {
         let raw_data = push.data.ok_or(anyhow!("Push without data: {push:#?}"))?;
-        let raw_data = *raw_data.first()
+        let raw_data = *raw_data
+            .first()
             .ok_or(anyhow!("Push without data: {push:#?}"))?;
         let raw_data_str = raw_data.get();
         match push.arg.channel {
             Channel::Trades => {
                 let data = serde_json::from_str(raw_data_str)?;
-                Ok(Data::Trades(data))
+                Ok(OkxData::Trades(data))
             }
             Channel::BboTbt => {
                 let data = serde_json::from_str(raw_data_str)?;
-                Ok(Data::BboTbt(push.arg.inst_id, data))
+                Ok(OkxData::BboTbt(push.arg.inst_id, data))
             }
             Channel::Orders => {
                 let data = serde_json::from_str(raw_data_str)?;
-                Ok(Data::Orders(push.arg.inst_id, data))
+                Ok(OkxData::Orders(push.arg.inst_id, data))
             }
         }
     }
 }
 
 impl crate::types::Data {
-    pub fn try_from_okx_data(okx_data: Data) -> Result<Self> {
+    pub fn try_from_okx_data(okx_data: OkxData) -> Result<Self> {
         match okx_data {
-            Data::Trades(data) => {
+            OkxData::Trades(data) => {
                 let trade = data.try_into_trade()?;
                 Ok(Self::Trade(trade))
             }
-            Data::BboTbt(inst_id, data) => {
+            OkxData::BboTbt(inst_id, data) => {
                 let bbo = data.try_into_bbo(inst_id)?;
                 Ok(Self::Bbo(bbo))
             }
-            Data::Orders(inst_id, data) => {
+            OkxData::Orders(inst_id, data) => {
                 let order_push = data.try_into_order_push(inst_id)?;
                 Ok(Self::Order(order_push))
             }
@@ -69,7 +72,7 @@ impl crate::types::Data {
     }
 
     pub fn try_from_okx_push(okx_push: Push) -> Result<Self> {
-        let okx_data = Data::try_from_push(okx_push)?;
+        let okx_data = OkxData::try_from_push(okx_push)?;
         Self::try_from_okx_data(okx_data)
     }
 }
@@ -143,6 +146,7 @@ pub struct OrdersData {
     cl_ord_id: String,
     state: OrderState,
     side: Side,
+    px: String,
     sz: String,
     fill_sz: String,
     acc_fill_sz: String,
@@ -158,7 +162,7 @@ impl OrdersData {
         let size = self.sz.parse::<f64>()?;
         let filled_size = self.fill_sz.parse::<f64>()?;
         let acc_filled_size = self.acc_fill_sz.parse::<f64>()?;
-        let price = self.fill_pnl.parse::<f64>()?;
+        let price = self.px.parse::<f64>()?;
         let side = match self.side {
             Side::Buy => true,
             Side::Sell => false,
@@ -181,7 +185,10 @@ impl OrdersData {
         };
 
         Ok(OrderPush {
-            order_id: self.cl_ord_id.parse()?,
+            order_id: self
+                .cl_ord_id
+                .parse()
+                .map_err(|_| anyhow!("Order without cl_ord_id"))?,
             inst_id,
             state: self.state,
             size,

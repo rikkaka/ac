@@ -61,6 +61,7 @@ impl InstId {
     }
 }
 
+#[derive(Debug)]
 pub enum Data {
     Trade(Trade),
     Bbo(Bbo),

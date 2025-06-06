@@ -11,13 +11,13 @@ use sqlx::{
 };
 use utils::TsStreamMerger;
 
-use crate::types::{Bbo, InstId, Level1, Level1Stream, Trade};
+use crate::{
+    CONFIG,
+    types::{Bbo, InstId, Level1, Level1Stream, Trade},
+};
 
 pub static POOL: Lazy<PgPool> = Lazy::new(|| {
-    dotenvy::dotenv_override()
-        .expect("Please set PG_HOST in the .env or the environment variables");
-    let pg_host =
-        env::var("PG_HOST").expect("Please set PG_HOST in the .env or the environment variables");
+    let pg_host = &CONFIG.pg_host;
     PgPoolOptions::new()
         .max_connections(50)
         .connect_lazy(&pg_host)

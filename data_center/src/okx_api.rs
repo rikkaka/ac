@@ -6,12 +6,20 @@ pub(crate) mod types;
 use core::{pin::Pin, task::Poll};
 use std::{task::Context, time::Duration};
 
-use crate::types::{Action, Data};
-use anyhow::{Result, anyhow};
+use crate::{
+    CONFIG,
+    types::{Action, Data},
+};
+use anyhow::{Result, anyhow, bail};
+use base64::Engine;
+use chrono::Utc;
 use futures::{Sink, Stream, ready};
-use futures_util::SinkExt;
+use futures_util::{SinkExt, StreamExt};
+use hmac::{Hmac, Mac};
 use pin_project::pin_project;
 use pushes::Push;
+use serde_json::json;
+use sha2::Sha256;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{self, Message},
@@ -19,6 +27,8 @@ use tokio_tungstenite::{
 use utils::Duplex;
 
 use crate::utils::{AutoReconnect, Heartbeat};
+
+pub use terminal::Terminal;
 
 const PUBLIC_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
 const PRIVATE_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/private";
@@ -31,6 +41,12 @@ pub enum OkxWsEndpoint {
     Private,
     PublicSimu,
     PrivateSimu,
+}
+
+impl OkxWsEndpoint {
+    pub fn is_private(&self) -> bool {
+        matches!(self, OkxWsEndpoint::Private | OkxWsEndpoint::PrivateSimu)
+    }
 }
 
 impl OkxWsEndpoint {
@@ -49,9 +65,61 @@ pub struct OkxWsStream<S>
 where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
-    /// WebSocket 流
     #[pin]
     inner: S,
+}
+
+impl<S> OkxWsStream<S>
+where
+    S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
+{
+    async fn login(&mut self) -> Result<()> {
+        dotenvy::dotenv_override()
+            .expect("Please set PG_HOST in the .env or the environment variables");
+        let api_key = &CONFIG.api_key;
+        let passphrase = &CONFIG.passphrase;
+        let secret_key = &CONFIG.secret_key;
+
+        /// 生成签名：Base64( HMAC-SHA256( timestamp + METHOD + REQUEST_PATH, SECRET_KEY ) )
+        fn build_sign(secret_key: &str, timestamp: i64) -> String {
+            // 拼接待签名字符串
+            let payload = format!("{timestamp}GET/users/self/verify");
+
+            // 计算 HMAC-SHA256
+            let mut mac = Hmac::<Sha256>::new_from_slice(secret_key.as_bytes()).unwrap();
+            mac.update(payload.as_bytes());
+            let result = mac.finalize().into_bytes();
+
+            // Base64 编码
+            base64::engine::general_purpose::STANDARD.encode(result)
+        }
+        let timestamp = Utc::now().timestamp();
+        let sign = build_sign(&secret_key, timestamp);
+
+        let login_message = serde_json::json!({
+            "op": "login",
+            "args": [{
+                "apiKey": api_key,
+                "passphrase": passphrase,
+                "sign": sign,
+                "timestamp": timestamp,
+            }]
+        });
+
+        tracing::debug!("Send login message: {login_message}");
+        self.inner
+            .send(login_message.to_string().into())
+            .await
+            .map_err(|e| anyhow!("Failed to send login message: {e}"))?;
+        let msg = self.inner.next().await.unwrap().unwrap();
+        let msg: serde_json::Value = serde_json::from_str(&msg.to_string()).unwrap();
+        let event = msg["event"].as_str().unwrap();
+        if event != "login" {
+            bail!("Failed to login: {msg:#?}")
+        }
+
+        Ok(())
+    }
 }
 
 pub async fn connect(
@@ -64,9 +132,13 @@ pub async fn connect(
             let (ws_stream, _) = connect_async(endpoint.url()).await?;
             let ws_stream = with_heartbeat(ws_stream);
             let mut ws_stream = OkxWsStream { inner: ws_stream };
+            if endpoint.is_private() {
+                ws_stream.login().await?;
+            }
             for request in subscribe_actions {
                 ws_stream.send(request).await?
             }
+
             Ok(ws_stream)
         }
     };
@@ -171,7 +243,7 @@ where
             match Data::try_from_okx_push(push) {
                 Ok(data) => return Poll::Ready(Some(data)),
                 Err(e) => {
-                    tracing::info!("Fail to deserialize data: {e}");
+                    tracing::info!("Fail to convert push to data: {e}");
                     continue;
                 }
             }
@@ -185,7 +257,7 @@ where
 {
     Heartbeat::new(
         ws_stream,
-        Duration::from_millis(600),
-        Duration::from_millis(100),
+        Duration::from_millis(CONFIG.heartbeat_interval),
+        Duration::from_millis(CONFIG.heartbeat_timeout),
     )
 }
