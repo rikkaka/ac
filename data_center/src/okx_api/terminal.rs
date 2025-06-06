@@ -7,8 +7,6 @@ use serde::Serialize;
 use tokio_tungstenite::tungstenite;
 use utils::Duplex;
 
-pub use super::actions::Action;
-
 use crate::{
     Data,
     okx_api::{
@@ -18,7 +16,7 @@ use crate::{
         types::Channel,
     },
     sql::{QueryOption, query_bbo},
-    types::InstId,
+    types::{Action, InstId},
 };
 
 // 解析订阅并建立连接，推送数据。还可接收写入以发送消息。

@@ -6,10 +6,7 @@ pub(crate) mod types;
 use core::{pin::Pin, task::Poll};
 use std::{task::Context, time::Duration};
 
-use crate::{
-    okx_api::actions::{Action, SubscribeArg},
-    types::Data,
-};
+use crate::types::{Action, Data};
 use anyhow::{Result, anyhow};
 use futures::{Sink, Stream, ready};
 use futures_util::SinkExt;

@@ -2,12 +2,9 @@ use std::time::Duration;
 
 use anyhow::Result;
 use data_center::{
-    okx_api::{
-        self, OkxWsEndpoint,
-        actions::{Action, Request, SubscribeArg},
-    },
+    okx_api::{self, OkxWsEndpoint},
     sql,
-    types::{Data, InstId},
+    types::{Action, Data, InstId},
 };
 use futures_util::StreamExt;
 

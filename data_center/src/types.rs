@@ -3,11 +3,53 @@ use std::task::Poll;
 use either::Either;
 use futures::{Stream, ready};
 use pin_project::pin_project;
+use serde::{Deserialize, Serialize};
 use smartstring::alias::String;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use utils::Timestamped;
 
 pub use crate::okx_api::types::{ExecType, InstId, OrdType, OrderState};
+
+#[derive(Serialize, Clone)]
+pub enum Action {
+    SubscribeTrades(InstId),
+    SubscribeBboTbt(InstId),
+    SubscribeOrders(InstId),
+    LimitOrder {
+        request_id: String,
+        side: Side,
+        inst_id: InstId,
+        client_order_id: String,
+        size: String,
+        price: String,
+    },
+    MarketOrder {
+        request_id: String,
+        side: Side,
+        inst_id: InstId,
+        client_order_id: String,
+        size: String,
+    },
+    AmendOrder {
+        request_id: String,
+        inst_id: InstId,
+        client_order_id: String,
+        new_size: String,
+        new_price: String,
+    },
+    CancelOrder {
+        request_id: String,
+        inst_id: InstId,
+        client_order_id: String,
+    },
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+pub enum Side {
+    Buy,
+    Sell,
+}
 
 impl InstId {
     #[inline]

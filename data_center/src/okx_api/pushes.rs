@@ -4,7 +4,7 @@ use serde_json::value::RawValue;
 use smartstring::alias::String;
 
 use super::types::*;
-use crate::types::{Bbo, InstId, OrderPush, OrderPushType, Trade};
+use crate::types::{Bbo, InstId, OrderPush, OrderPushType, Side, Trade};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

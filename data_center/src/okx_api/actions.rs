@@ -1,41 +1,10 @@
 use serde::{Deserialize, Serialize};
 use tokio_tungstenite::tungstenite::Message;
+use smartstring::alias::String;
+
+use crate::types::{Action, Side};
 
 use super::types::*;
-
-#[derive(Serialize, Clone)]
-pub enum Action {
-    SubscribeTrades(InstId),
-    SubscribeBboTbt(InstId),
-    SubscribeOrders(InstType, InstId),
-    LimitOrder {
-        request_id: String,
-        side: Side,
-        inst_id: InstId,
-        client_order_id: String,
-        size: String,
-        price: String,
-    },
-    MarketOrder {
-        request_id: String,
-        side: Side,
-        inst_id: InstId,
-        client_order_id: String,
-        size: String,
-    },
-    AmendOrder {
-        request_id: String,
-        inst_id: InstId,
-        client_order_id: String,
-        new_size: String,
-        new_price: String,
-    },
-    CancelOrder {
-        request_id: String,
-        inst_id: InstId,
-        client_order_id: String,
-    },
-}
 
 impl Action {
     pub fn to_message(&self) -> Message {
@@ -50,8 +19,11 @@ impl Action {
                     .unwrap()
                     .into()
             }
-            Action::SubscribeOrders(inst_type, inst_id) => {
-                serde_json::to_string(&Request::subscribe_orders(*inst_type, *inst_id))
+            Action::SubscribeOrders(inst_id) => {
+                let inst_type = match inst_id {
+                    InstId::EthUsdtSwap | InstId::BtcUsdtSwap => InstType::Swap,
+                };
+                serde_json::to_string(&Request::subscribe_orders(inst_type, *inst_id))
                     .unwrap()
                     .into()
             }

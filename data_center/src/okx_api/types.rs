@@ -24,13 +24,6 @@ pub enum InstType {
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
-pub enum Side {
-    Buy,
-    Sell,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy)]
-#[serde(rename_all = "kebab-case")]
 pub enum TdMode {
     Cross,
 }
