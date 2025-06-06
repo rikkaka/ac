@@ -188,8 +188,8 @@ impl Executor<Bbo> for NaiveLimitExecutor {
                 self.placed_order = self.placed_order.and_then(|order| order.fill(fill));
                 self.position.update(fill);
             }
-            BrokerEvent::Placed(order) => self.placed_order = Some(*order),
-            BrokerEvent::Modified(order) => self.placed_order = Some(*order),
+            BrokerEvent::Placed(Order::Limit(order)) => self.placed_order = Some(*order),
+            BrokerEvent::Amended(Order::Limit(order)) => self.placed_order = Some(*order),
             BrokerEvent::Canceled(order_id) => {
                 if let Some(order) = self.placed_order {
                     if order.order_id == *order_id {
@@ -197,6 +197,7 @@ impl Executor<Bbo> for NaiveLimitExecutor {
                     }
                 }
             }
+            _ => unreachable!()
         }
     }
 
@@ -326,7 +327,7 @@ mod tests {
 
         let order_id = match &events[0] {
             ClientEvent::PlaceOrder(Order::Limit(order)) => {
-                executor.update(&BrokerEvent::Placed(*order));
+                executor.update(&BrokerEvent::Placed(Order::Limit(*order)));
                 order.order_id
             },
             _ => panic!("Expected PlaceOrder event"),
@@ -407,7 +408,7 @@ mod tests {
 
         let order_id = match &events[0] {
             ClientEvent::PlaceOrder(Order::Limit(order)) => {
-                executor.update(&BrokerEvent::Placed(*order));
+                executor.update(&BrokerEvent::Placed(Order::Limit(*order)));
                 order.order_id
             }
             _ => panic!("Expected PlaceOrder event"),
@@ -509,7 +510,7 @@ mod tests {
                 assert!(order.side); // 确认是买单
                 assert_eq!(order.price, 100.0); // 买价
                 assert_eq!(order.size, 10.0); // 规模：1000/100=10
-                executor.update(&BrokerEvent::Placed(*order));
+                executor.update(&BrokerEvent::Placed(Order::Limit(*order)));
                 order.order_id
             }
             _ => panic!("Expected PlaceOrder event"),
@@ -554,7 +555,7 @@ mod tests {
                 assert_eq!(order.price, 100.0); // 卖价
                 // 规模：原有持仓(4.0) + 新空头规模(1000/100=10.0) = 14.0
                 assert_eq!(order.size, 14.0);
-                executor.update(&BrokerEvent::Placed(*order));
+                executor.update(&BrokerEvent::Placed(Order::Limit(*order)));
                 order.order_id
             }
             _ => panic!("Expected PlaceOrder event"),
@@ -604,7 +605,7 @@ mod tests {
                 assert!(order.side); // 买单平空仓
                 assert_eq!(order.price, 97.0); // 买价
                 assert_eq!(order.size, 4.0); // 平掉全部-4.0持仓
-                executor.update(&BrokerEvent::Placed(*order));
+                executor.update(&BrokerEvent::Placed(Order::Limit(*order)));
                 order.order_id
             }
             _ => panic!("Expected PlaceOrder event"),

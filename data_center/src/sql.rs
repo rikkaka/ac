@@ -1,7 +1,7 @@
 use std::env;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use either::Either;
 use futures::{Stream, StreamExt};
 use once_cell::sync::Lazy;
@@ -29,6 +29,24 @@ pub struct QueryOption {
     pub instruments: Vec<InstId>,
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
+}
+
+impl QueryOption {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_instrument(mut self, inst_id: InstId) -> Self {
+        self.instruments.push(inst_id);
+        self
+    }
+
+    pub fn with_duration(mut self, duration: Duration) -> Self {
+        let end = Utc::now();
+        let start = end - duration;
+        self.start = Some(start);
+        self
+    }
 }
 
 pub async fn insert_trade(trade: &Trade) -> Result<()> {

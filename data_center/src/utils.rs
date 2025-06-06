@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures::{Sink, Stream, ready};
 use pin_project::pin_project;
+use utils::Duplex;
 use std::collections::VecDeque;
 use std::fmt::Display;
 use std::pin::Pin;
@@ -35,9 +36,6 @@ macro_rules! delegate_sink {
         }
     };
 }
-
-pub trait Duplex<I, IE, O>: Sink<I, Error = IE> + Stream<Item = O> + Unpin {}
-impl<T, I, IE, O> Duplex<I, IE, O> for T where T: Sink<I, Error = IE> + Stream<Item = O> + Unpin {}
 
 /// 实现底层流的心跳机制。在给定时间未接收到新消息后发送 ping 消消息，并注册需要接收 pong 消息。若未在给定时间内收到pong，发出错误。
 #[pin_project]

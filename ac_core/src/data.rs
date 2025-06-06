@@ -1,6 +1,8 @@
 pub mod okx;
 
-use crate::InstId;
+use data_center::types::{OrdType, OrderPushType};
+
+use crate::{BrokerEvent, ExecType, Fill, FillState, InstId, LimitOrder, Order};
 
 #[derive(Debug, Clone)]
 pub struct Trade {
@@ -63,4 +65,59 @@ pub struct Level1 {
     bbo: Bbo,
     last_price: f64,
     volume: f64,
+}
+
+impl<T> From<data_center::OrderPush> for BrokerEvent<T> {
+    fn from(order_push: data_center::OrderPush) -> Self {
+        let order = match order_push.ord_type {
+            OrdType::Limit => Order::Limit(LimitOrder {
+                order_id: order_push.order_id,
+                instrument_id: order_push.inst_id,
+                price: order_push.price,
+                size: order_push.size,
+                filled_size: order_push.filled_size,
+                side: order_push.side,
+            }),
+            OrdType::Market => unimplemented!(),
+        };
+
+        match order_push.push_type {
+            OrderPushType::Canceled => BrokerEvent::Canceled(order_push.order_id),
+            OrderPushType::Amended => BrokerEvent::Amended(order),
+            OrderPushType::Placed => BrokerEvent::Placed(order),
+            OrderPushType::Fill => {
+                let exec_type = match order_push.exec_type {
+                    Some(data_center::types::ExecType::M) => ExecType::Maker,
+                    Some(data_center::types::ExecType::T) => ExecType::Taker,
+                    // Actually unreachable
+                    _ => ExecType::Taker,
+                };
+                let state = match order_push.state {
+                    data_center::types::OrderState::Filled => FillState::Filled,
+                    _ => FillState::Partially,
+                };
+                let fill = Fill {
+                    order_id: order_push.order_id,
+                    instrument_id: order_push.inst_id,
+                    filled_size: order_push.filled_size,
+                    acc_filled_size: order_push.acc_filled_size,
+                    price: order_push.price,
+                    side: order_push.side,
+                    exec_type,
+                    state,
+                };
+                BrokerEvent::Fill(fill)
+            }
+        }
+    }
+}
+
+impl BrokerEvent<Bbo> {
+    fn try_from_data(data: data_center::Data) -> Option<Self> {
+        match data {
+            data_center::Data::Bbo(bbo) => Some(BrokerEvent::Data(bbo.into())),
+            data_center::Data::Order(order_push) => Some(order_push.into()),
+            data_center::Data::Trade(_) => None,
+        }
+    }
 }

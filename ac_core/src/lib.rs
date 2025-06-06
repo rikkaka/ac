@@ -163,8 +163,8 @@ pub struct Fill {
 pub enum BrokerEvent<D> {
     Data(D),
     Fill(Fill),
-    Placed(LimitOrder),
-    Modified(LimitOrder),
+    Placed(Order),
+    Amended(Order),
     Canceled(OrderId),
 }
 

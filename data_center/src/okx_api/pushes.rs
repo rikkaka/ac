@@ -3,8 +3,8 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use smartstring::alias::String;
 
-use crate::types::{Bbo, InstId, OrderPush, Trade};
 use super::types::*;
+use crate::types::{Bbo, InstId, OrderPush, OrderPushType, Trade};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -24,7 +24,7 @@ pub struct Push<'a> {
 pub enum Data {
     Trades(TradesData),
     BboTbt(InstId, DepthData),
-    Orders(OrdersData),
+    Orders(InstId, OrdersData),
 }
 
 impl Data {
@@ -45,7 +45,7 @@ impl Data {
             }
             Channel::Orders => {
                 let data = serde_json::from_str(raw_data_str)?;
-                Ok(Data::Orders(data))
+                Ok(Data::Orders(push.arg.inst_id, data))
             }
         }
     }
@@ -62,8 +62,8 @@ impl crate::types::Data {
                 let bbo = data.try_into_bbo(inst_id)?;
                 Ok(Self::Bbo(bbo))
             }
-            Data::Orders(data) => {
-                let order_push = data.try_into_order_push()?;
+            Data::Orders(inst_id, data) => {
+                let order_push = data.try_into_order_push(inst_id)?;
                 Ok(Self::Order(order_push))
             }
         }
@@ -76,9 +76,10 @@ impl crate::types::Data {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TradesData {
-    pub instId: InstId,
-    pub tradeId: String,
+    pub inst_id: InstId,
+    pub trade_id: String,
     pub px: String,
     pub sz: String,
     pub side: String,
@@ -100,8 +101,8 @@ impl TradesData {
 
         Ok(Trade {
             ts,
-            instrument_id: self.instId,
-            trade_id: self.tradeId,
+            instrument_id: self.inst_id,
+            trade_id: self.trade_id,
             price,
             size,
             side,
@@ -147,12 +148,14 @@ pub struct OrdersData {
     fill_sz: String,
     acc_fill_sz: String,
     fill_pnl: String,
+    cancel_source: String,
     amend_result: String,
     exec_type: String,
+    ord_type: OrdType,
 }
 
 impl OrdersData {
-    pub fn try_into_order_push(self) -> Result<OrderPush> {
+    pub fn try_into_order_push(self, inst_id: InstId) -> Result<OrderPush> {
         let size = self.sz.parse::<f64>()?;
         let filled_size = self.fill_sz.parse::<f64>()?;
         let acc_filled_size = self.acc_fill_sz.parse::<f64>()?;
@@ -166,22 +169,30 @@ impl OrdersData {
             "M" => Some(ExecType::M),
             _ => None,
         };
-        let is_amended = if !self.amend_result.is_empty() {
-            true
-        } else {
-            false
+
+        let push_type = match (
+            filled_size == 0.,
+            self.cancel_source.is_empty(),
+            self.amend_result.is_empty(),
+        ) {
+            (false, _, _) => OrderPushType::Fill,
+            (_, false, _) => OrderPushType::Canceled,
+            (_, _, false) => OrderPushType::Amended,
+            _ => OrderPushType::Placed,
         };
 
         Ok(OrderPush {
-            order_id: self.cl_ord_id,
+            order_id: self.cl_ord_id.parse()?,
+            inst_id,
             state: self.state,
             size,
             filled_size,
             acc_filled_size,
             price,
             side,
+            ord_type: self.ord_type,
             exec_type,
-            is_amended,
+            push_type,
         })
     }
 }

@@ -7,9 +7,7 @@ use smartstring::alias::String;
 use sqlx::{FromRow, Row, postgres::PgRow};
 use utils::Timestamped;
 
-use crate::okx_api::types::{ExecType, OrderState};
-
-pub use crate::okx_api::types::InstId;
+pub use crate::okx_api::types::{InstId, OrdType, OrderState, ExecType};
 
 impl InstId {
     #[inline]
@@ -24,7 +22,7 @@ impl InstId {
 pub enum Data {
     Trade(Trade),
     Bbo(Bbo),
-    Order(OrderPush)
+    Order(OrderPush),
 }
 
 #[derive(Debug, Clone)]
@@ -74,15 +72,25 @@ impl Timestamped for Bbo {
 
 #[derive(Debug, Clone)]
 pub struct OrderPush {
-    pub order_id: String,
+    pub order_id: u64,
+    pub inst_id: InstId,
     pub state: OrderState,
     pub size: f64,
     pub filled_size: f64,
     pub acc_filled_size: f64,
     pub price: f64,
     pub side: bool,
+    pub ord_type: OrdType,
     pub exec_type: Option<ExecType>,
-    pub is_amended: bool,
+    pub push_type: OrderPushType,
+}
+
+#[derive(Debug, Clone)]
+pub enum OrderPushType {
+    Placed,
+    Amended,
+    Canceled,
+    Fill
 }
 
 impl FromRow<'_, PgRow> for Trade {
@@ -106,12 +114,12 @@ impl FromRow<'_, PgRow> for Bbo {
             ts: row.try_get("ts")?,
             instrument_id: serde_plain::from_str(row.try_get::<&str, _>("instrument_id")?)
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
-                ask_price: row.try_get("price_ask")?,
-                ask_size: row.try_get("size_ask")?,
-                ask_order_count: row.try_get("order_count_ask")?,
-                bid_price: row.try_get("price_bid")?,
-                bid_size: row.try_get("size_bid")?,
-                bid_order_count: row.try_get("order_count_bid")?,
+            ask_price: row.try_get("price_ask")?,
+            ask_size: row.try_get("size_ask")?,
+            ask_order_count: row.try_get("order_count_ask")?,
+            bid_price: row.try_get("price_bid")?,
+            bid_size: row.try_get("size_bid")?,
+            bid_order_count: row.try_get("order_count_bid")?,
         })
     }
 }

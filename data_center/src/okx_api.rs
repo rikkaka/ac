@@ -1,33 +1,28 @@
 pub mod actions;
 pub(crate) mod pushes;
+pub mod terminal;
 pub(crate) mod types;
 
 use core::{pin::Pin, task::Poll};
 use std::{task::Context, time::Duration};
 
-use crate::{
-    okx_api::{
-        actions::SubscribeArg,
-        types::{Channel, InstType},
-    },
-    types::Data,
-};
+use crate::{okx_api::actions::SubscribeArg, types::Data};
 use anyhow::Result;
 use futures::{Sink, Stream, ready};
 use futures_util::SinkExt;
 use pin_project::pin_project;
 use pushes::Push;
 use serde::Serialize;
-use serde_json::json;
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{self, Message},
 };
+use utils::Duplex;
 
 use crate::{
     delegate_sink,
-    okx_api::actions::OrderRequest,
-    utils::{AutoReconnect, Duplex, Heartbeat},
+    okx_api::actions::Request,
+    utils::{AutoReconnect, Heartbeat},
 };
 
 const PUBLIC_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
@@ -66,14 +61,16 @@ where
 
 pub async fn connect(
     endpoint: OkxWsEndpoint,
-    subscribe_args: Vec<SubscribeArg<'static>>,
+    subscribe_requests: &[Request<SubscribeArg>],
 ) -> Result<impl Duplex<Message, tungstenite::Error, Data>> {
     let make_connection = move || {
-        let subscribe_args = subscribe_args.clone();
+        let subscribe_args = subscribe_requests;
         async move {
             let (ws_stream, _) = connect_async(endpoint.url()).await?;
             let mut ws_stream = with_heartbeat(ws_stream);
-            subscribe(&mut ws_stream, &subscribe_args).await?;
+            for request in subscribe_args {
+                send_request(&mut ws_stream, request).await?;
+            }
             Ok::<_, anyhow::Error>(OkxWsStream { inner: ws_stream })
         }
     };
@@ -152,29 +149,12 @@ where
     }
 }
 
-pub async fn subscribe<S>(ws_sink: &mut S, args: &[SubscribeArg<'_>]) -> Result<()>
+pub async fn send_request<S, A: Serialize>(ws_sink: &mut S, param: &Request<A>) -> Result<()>
 where
     S: Sink<Message> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    for arg in args {
-        let param = json!({
-            "op": "subscribe",
-            "args": [arg]
-        })
-        .to_string();
-        ws_sink.send(param.into()).await?;
-    }
-
-    Ok(())
-}
-
-pub async fn order_request<S, OA: Serialize>(ws_sink: &mut S, param: OrderRequest<OA>) -> Result<()>
-where
-    S: Sink<Message> + Unpin,
-    S::Error: std::error::Error + Send + Sync + 'static,
-{
-    let param = serde_json::to_string(&param)?;
+    let param = serde_json::to_string(param)?;
     ws_sink.send(param.into()).await?;
 
     Ok(())

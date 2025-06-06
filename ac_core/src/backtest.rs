@@ -220,7 +220,7 @@ where
                         self.broker_events_buf.push_back(BrokerEvent::Fill(fill));
                     } else {
                         self.limit_orders.insert(order.order_id, order);
-                        self.broker_events_buf.push_back(BrokerEvent::Placed(order));
+                        self.broker_events_buf.push_back(BrokerEvent::Placed(Order::Limit(order)));
                     }
                 }
             },
@@ -230,7 +230,7 @@ where
                         existing_order.price = order.price;
                         existing_order.size = order.size;
                         self.broker_events_buf
-                            .push_back(BrokerEvent::Modified(*existing_order));
+                            .push_back(BrokerEvent::Amended(Order::Limit(*existing_order)));
                     }
                 }
             }
@@ -783,7 +783,7 @@ mod tests {
 
         broker.on_client_event(ClientEvent::AmendOrder(amended_order));
         let event = broker.next().await.unwrap();
-        assert!(matches!(event, BrokerEvent::Modified(_)));
+        assert!(matches!(event, BrokerEvent::Amended(_)));
 
         // Check that order was amended
         let order = broker.limit_orders.get(&5).unwrap();

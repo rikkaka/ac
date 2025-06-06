@@ -2,13 +2,13 @@ use std::time::Duration;
 
 use anyhow::Result;
 use data_center::{
-    okx_api::{self, OkxWsEndpoint, actions::SubscribeArg},
+    okx_api::{self, actions::{Request, SubscribeArg}, OkxWsEndpoint},
     sql,
-    types::Data,
+    types::{Data, InstId},
 };
 use futures_util::StreamExt;
 
-static INSTRUMENTS: [&str; 1] = ["ETH-USDT-SWAP"];
+static INSTRUMENTS: [InstId; 1] = [InstId::EthUsdtSwap];
 
 #[tokio::main]
 async fn main() {
@@ -18,12 +18,12 @@ async fn main() {
 }
 
 async fn main_task() -> Result<()> {
-    let mut subscribe_args = vec![];
+    let mut subscribe_requests = vec![];
     for inst_id in INSTRUMENTS {
-        subscribe_args.push(SubscribeArg::new_trades(inst_id));
-        subscribe_args.push(SubscribeArg::new_bbo_tbt(inst_id))
+        subscribe_requests.push(Request::subscribe_trades(inst_id));
+        subscribe_requests.push(Request::subscribe_bbo_tbt(inst_id))
     }
-    let mut okx_ws = okx_api::connect(OkxWsEndpoint::Public, subscribe_args).await?;
+    let mut okx_ws = okx_api::connect(OkxWsEndpoint::Public, &subscribe_requests).await?;
 
     while let Some(data) = okx_ws.next().await {
         match data {

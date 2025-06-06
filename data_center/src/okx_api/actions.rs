@@ -2,55 +2,80 @@ use serde::{Deserialize, Serialize};
 
 use super::types::*;
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SubscribeArg<'a> {
-    channel: Channel,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    inst_type: Option<InstType>,
-    inst_id: &'a str,
-}
-
-impl<'a> SubscribeArg<'a> {
-    pub fn new_trades(inst_id: &'a str) -> Self {
-        Self {
-            channel: Channel::Trades,
-            inst_type: None,
-            inst_id,
-        }
-    }
-
-    pub fn new_bbo_tbt(inst_id: &'a str) -> Self {
-        Self {
-            channel: Channel::BboTbt,
-            inst_type: None,
-            inst_id,
-        }
-    }
-
-    pub fn new_orders(inst_type: InstType, inst_id: &'a str) -> Self {
-        Self {
-            channel: Channel::Orders,
-            inst_type: Some(inst_type),
-            inst_id,
-        }
-    }
-}
-
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct OrderRequest<OA> {
-    id: String,
-    op: OrderOp,
-    args: [OA; 1],
+pub struct Request<A> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    op: Op,
+    args: [A; 1],
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
-pub enum OrderOp {
+pub enum Op {
+    Subscribe,
     Order,
     AmendOrder,
     CancelOrder,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscribeArg {
+    channel: Channel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    inst_type: Option<InstType>,
+    inst_id: InstId,
+}
+
+impl Request<SubscribeArg> {
+    pub fn subscribe_trades(inst_id: InstId) -> Self {
+        let arg = SubscribeArg {
+            channel: Channel::Trades,
+            inst_type: None,
+            inst_id,
+        };
+        Self {
+            id: None,
+            op: Op::Subscribe,
+            args: [arg; 1],
+        }
+    }
+
+    pub fn subscribe_bbo_tbt(inst_id: InstId) -> Self {
+        let arg = SubscribeArg {
+            channel: Channel::BboTbt,
+            inst_type: None,
+            inst_id,
+        };
+        Self {
+            id: None,
+            op: Op::Subscribe,
+            args: [arg; 1],
+        }
+    }
+
+    pub fn subscribe_orders(inst_type: InstType, inst_id: InstId) -> Self {
+        let arg = SubscribeArg {
+            channel: Channel::Orders,
+            inst_type: Some(inst_type),
+            inst_id,
+        };
+        Self {
+            id: None,
+            op: Op::Subscribe,
+            args: [arg; 1],
+        }
+    }
+
+    pub fn inst_id(&self) -> InstId {
+        self.args[0].inst_id
+    }
+
+    pub fn channel(&self) -> Channel {
+        self.args[0].channel
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -65,8 +90,8 @@ pub struct LimitOrderArg {
     px: String,
 }
 
-impl OrderRequest<LimitOrderArg> {
-    pub fn new_limit(
+impl Request<LimitOrderArg> {
+    pub fn limit_order(
         request_id: String,
         side: Side,
         inst_id: InstId,
@@ -84,8 +109,8 @@ impl OrderRequest<LimitOrderArg> {
             px: price,
         };
         Self {
-            id: request_id,
-            op: OrderOp::Order,
+            id: Some(request_id),
+            op: Op::Order,
             args: [arg; 1],
         }
     }
@@ -102,8 +127,8 @@ pub struct MarketOrderArg {
     sz: String,
 }
 
-impl OrderRequest<MarketOrderArg> {
-    pub fn new_market(
+impl Request<MarketOrderArg> {
+    pub fn market_order(
         request_id: String,
         side: Side,
         inst_id: InstId,
@@ -119,8 +144,8 @@ impl OrderRequest<MarketOrderArg> {
             sz: size,
         };
         Self {
-            id: request_id,
-            op: OrderOp::Order,
+            id: Some(request_id),
+            op: Op::Order,
             args: [arg; 1],
         }
     }
@@ -135,8 +160,8 @@ pub struct AmendOrderArg {
     new_px: String,
 }
 
-impl OrderRequest<AmendOrderArg> {
-    pub fn new_amend(
+impl Request<AmendOrderArg> {
+    pub fn amend_order(
         request_id: String,
         inst_id: InstId,
         client_order_id: String,
@@ -150,8 +175,8 @@ impl OrderRequest<AmendOrderArg> {
             new_px: new_price,
         };
         Self {
-            id: request_id,
-            op: OrderOp::AmendOrder,
+            id: Some(request_id),
+            op: Op::AmendOrder,
             args: [arg; 1],
         }
     }
@@ -164,15 +189,15 @@ pub struct CancelOrderArg {
     cl_ord_id: String,
 }
 
-impl OrderRequest<CancelOrderArg> {
-    pub fn new_cancel(request_id: String, inst_id: InstId, client_order_id: String) -> Self {
+impl Request<CancelOrderArg> {
+    pub fn cancel_order(request_id: String, inst_id: InstId, client_order_id: String) -> Self {
         let arg = CancelOrderArg {
             inst_id,
             cl_ord_id: client_order_id,
         };
         Self {
-            id: request_id,
-            op: OrderOp::CancelOrder,
+            id: Some(request_id),
+            op: Op::CancelOrder,
             args: [arg; 1],
         }
     }

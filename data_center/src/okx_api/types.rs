@@ -8,7 +8,7 @@ pub enum InstId {
     BtcUsdtSwap,
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum Channel {
     Trades,
@@ -34,7 +34,8 @@ pub enum Side {
 pub enum TdMode {
     Cross,
 }
-#[derive(Serialize, Deserialize, Clone, Copy)]
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub enum OrdType {
     Limit,
