@@ -113,7 +113,7 @@ where
         if event != "login" {
             bail!("Failed to login: {msg:#?}")
         }
-
+        tracing::info!("Login successful");
         Ok(())
     }
 }
@@ -254,6 +254,9 @@ pub struct OkxWsStreamAdapted<S> {
     public: S,
     #[pin]
     private: S,
+
+    is_public_ended: bool,
+    is_private_ended: bool,
 }
 
 impl Action {
@@ -276,13 +279,25 @@ where
     type Item = <S as Stream>::Item;
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut this = self.project();
-        if let Some(item) = ready!(this.public.as_mut().poll_next(cx)) {
-            return Poll::Ready(Some(item));
+        if !*this.is_public_ended {
+            match this.public.as_mut().poll_next(cx) {
+                Poll::Ready(Some(data)) => return Poll::Ready(Some(data)),
+                Poll::Ready(None) => *this.is_public_ended = true,
+                Poll::Pending => {}
+            };
         }
-        if let Some(item) = ready!(this.private.as_mut().poll_next(cx)) {
-            return Poll::Ready(Some(item));
+        if !*this.is_private_ended {
+            match this.private.as_mut().poll_next(cx) {
+                Poll::Ready(Some(data)) => return Poll::Ready(Some(data)),
+                Poll::Ready(None) => *this.is_private_ended = true,
+                Poll::Pending => {}
+            };
         }
-        Poll::Ready(None)
+        if *this.is_public_ended && *this.is_private_ended {
+            Poll::Ready(None)
+        } else {
+            Poll::Pending
+        }
     }
 }
 
@@ -348,11 +363,14 @@ pub async fn connect_adapted(
     let (private_actions, public_actions): (Vec<_>, Vec<_>) = subscribe_actions
         .into_iter()
         .partition(|action| action.is_private());
+    dbg!(&private_actions, &public_actions);
     let public_ws = connect(public_endpoint, public_actions).await?;
     let private_ws = connect(private_endpoint, private_actions).await?;
     let adapted_ws = OkxWsStreamAdapted {
         public: public_ws,
         private: private_ws,
+        is_public_ended: false,
+        is_private_ended: false,
     };
     Ok(adapted_ws)
 }
