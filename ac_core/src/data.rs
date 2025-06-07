@@ -1,8 +1,8 @@
 pub mod okx;
 
-use data_center::types::{OrdType, OrderPushType};
+use data_center::types::{Action, OrdType, OrderPushType};
 
-use crate::{BrokerEvent, ExecType, Fill, FillState, InstId, LimitOrder, Order};
+use crate::{BrokerEvent, ClientEvent, ExecType, Fill, FillState, InstId, LimitOrder, Order};
 
 #[derive(Debug, Clone)]
 pub struct Trade {
@@ -113,11 +113,17 @@ impl<T> From<data_center::OrderPush> for BrokerEvent<T> {
 }
 
 impl BrokerEvent<Bbo> {
-    fn try_from_data(data: data_center::Data) -> Option<Self> {
+    pub fn try_from_data(data: data_center::Data) -> Option<Self> {
         match data {
             data_center::Data::Bbo(bbo) => Some(BrokerEvent::Data(bbo.into())),
             data_center::Data::Order(order_push) => Some(order_push.into()),
             data_center::Data::Trade(_) => None,
         }
+    }
+}
+
+impl ClientEvent {
+    fn try_into_action(client_event: ClientEvent) -> Action {
+        todo!()
     }
 }

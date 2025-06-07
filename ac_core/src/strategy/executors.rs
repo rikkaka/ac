@@ -136,7 +136,7 @@ impl NaiveLimitExecutor {
         // 若目标订单的size为0，则取消目前挂单
         if approx_eq!(f64, 0., raw_size, epsilon = self.size_eps) {
             let old_order_id = old_order.order_id;
-            return vec![ClientEvent::CancelOrder(old_order_id)];
+            return vec![ClientEvent::CancelOrder(self.instrument_id, old_order_id)];
         }
 
         let (new_side, new_size) = crate::utils::get_side_size_from_raw_size(raw_size);
@@ -149,8 +149,8 @@ impl NaiveLimitExecutor {
                 epsilon = self.size_eps
             ) || old_order.price != price
             {
-                let modified_order = old_order.modified(new_size, price);
-                return vec![ClientEvent::AmendOrder(Order::Limit(modified_order))];
+                let modified_order = old_order.amended(new_size, price);
+                return vec![ClientEvent::AmendOrder(modified_order)];
             }
 
             // 两个思路：1：在收到信号后，在信号改变前，维持最初的挂单，不改单；
@@ -161,7 +161,7 @@ impl NaiveLimitExecutor {
             // 方向不匹配，则取消订单并重新下单
             let mut events = vec![];
             let old_order_id = old_order.order_id;
-            events.push(ClientEvent::CancelOrder(old_order_id));
+            events.push(ClientEvent::CancelOrder(self.instrument_id, old_order_id));
             let new_order = self.gen_order(raw_size, price);
             events.extend(new_order.map(ClientEvent::place_limit_order));
             events
@@ -338,7 +338,7 @@ mod tests {
         assert_eq!(events.len(), 2); // Cancel + place new order
 
         // Check cancel order
-        assert!(matches!(events[0], ClientEvent::CancelOrder(id) if id == order_id));
+        assert!(matches!(events[0], ClientEvent::CancelOrder(_, id) if id == order_id));
 
         // Check new order
         if let ClientEvent::PlaceOrder(Order::Limit(order)) = &events[1] {
@@ -543,7 +543,7 @@ mod tests {
         assert_eq!(events.len(), 2); // 取消旧单 + 下新单
 
         // 确认取消旧订单
-        assert!(matches!(events[0], ClientEvent::CancelOrder(id) if {
+        assert!(matches!(events[0], ClientEvent::CancelOrder(_, id) if {
             executor.update(&BrokerEvent::Canceled(id));
             id == buy_order_id
         }));
@@ -585,7 +585,7 @@ mod tests {
         let events = executor.on_signal(None);
         assert_eq!(events.len(), 1); // 维持现有持仓，但取消挂单
         match events[0] {
-            ClientEvent::CancelOrder(order_id) => {
+            ClientEvent::CancelOrder(_, order_id) => {
                 assert_eq!(order_id, 1 << 16 | 123);
                 executor.update(&BrokerEvent::Canceled(order_id));
             }

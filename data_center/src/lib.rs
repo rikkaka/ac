@@ -2,13 +2,15 @@ pub mod instruments_profile;
 pub mod okx_api;
 pub mod sql;
 pub mod types;
+mod terminal;
 mod utils;
 
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use smartstring::alias::String;
 
-pub use types::{Data, OrderPush};
+pub use types::{Data, OrderPush, Action};
+pub use terminal::Terminal;
 
 static CONFIG: Lazy<Config> = Lazy::new(|| {
     dotenvy::dotenv_override()
@@ -19,7 +21,6 @@ static CONFIG: Lazy<Config> = Lazy::new(|| {
 #[derive(Deserialize, Debug)]
 struct Config {
     pg_host: String,
-    pg_remote_host: String,
     api_key: String,
     secret_key: String,
     passphrase: String,

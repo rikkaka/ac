@@ -1,5 +1,6 @@
 pub mod backtest;
 pub mod data;
+pub mod okx;
 pub mod strategy;
 mod utils;
 
@@ -108,10 +109,16 @@ impl LimitOrder {
         }
     }
 
-    pub fn modified(&mut self, new_size: f64, new_price: f64) -> Self {
+    pub fn amended(&mut self, new_size: f64, new_price: f64) -> AmendOrder {
         self.size = self.filled_size + new_size;
         self.price = new_price;
-        *self
+
+        AmendOrder {
+            order_id: self.order_id,
+            instrument_id: self.instrument_id,
+            new_size: self.size,
+            new_price: self.price,
+        }
     }
 
     pub fn unfilled_size(&self) -> f64 {
@@ -128,6 +135,14 @@ impl LimitOrder {
             FillState::Filled => None,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct AmendOrder {
+    pub order_id: u64,
+    pub instrument_id: InstId,
+    pub new_size: f64,
+    pub new_price: f64,
 }
 
 #[derive(Debug, PartialEq, Default)]
@@ -180,8 +195,8 @@ impl<D> BrokerEvent<D> {
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
     PlaceOrder(Order),
-    AmendOrder(Order),
-    CancelOrder(OrderId),
+    AmendOrder(AmendOrder),
+    CancelOrder(InstId, OrderId),
 }
 
 impl ClientEvent {
@@ -193,21 +208,21 @@ impl ClientEvent {
         match self {
             ClientEvent::PlaceOrder(_)
             | &ClientEvent::AmendOrder(_)
-            | &ClientEvent::CancelOrder(_) => true,
+            | &ClientEvent::CancelOrder(_, _) => true,
             // _ => false
         }
     }
 }
 
 /// D: type for the data; IE: error type for the input
-pub trait Broker<D>: Duplex<Vec<ClientEvent>, anyhow::Error, BrokerEvent<D>> {
-    fn on_client_event(&mut self, client_event: ClientEvent);
-    fn on_client_events(&mut self, client_events: impl Iterator<Item = ClientEvent>) {
+trait Broker<D> {
+    async fn on_client_event(&mut self, client_event: ClientEvent);
+    async fn on_client_events(&mut self, client_events: impl Iterator<Item = ClientEvent>) {
         for event in client_events {
-            self.on_client_event(event);
+            self.on_client_event(event).await;
         }
     }
-    fn now(&self) -> Timestamp;
+    async fn next_broker_event(&mut self) -> Option<BrokerEvent<D>>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -305,10 +320,10 @@ where
 
     pub async fn run(&mut self) {
         loop {
-            let Some(broker_event) = self.broker.next().await else {
+            let Some(broker_event) = self.broker.next_broker_event().await else {
                 break;
             };
-            let client_events = self.strategy.on_event(&broker_event, self.broker.now());
+            let client_events = self.strategy.on_event(&broker_event);
             self.broker.on_client_events(client_events.into_iter());
         }
     }

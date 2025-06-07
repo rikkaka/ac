@@ -1,14 +1,14 @@
 use std::{pin::Pin, task::Poll};
 
 use anyhow::Result;
-use chrono::Duration;
+use chrono::{DateTime, Duration, Utc};
 use futures::{Sink, Stream, StreamExt, ready};
 use pin_project::pin_project;
 use utils::Duplex;
 
 use crate::{
     Data, delegate_sink,
-    okx_api::{OkxWsEndpoint, connect},
+    okx_api::{OkxWsEndpoint, connect, connect_adapted},
     sql::{QueryOption, query_bbo},
     types::{Action, InstId},
 };
@@ -20,31 +20,42 @@ pub struct Terminal {
     #[pin]
     history_stream: Pin<Box<dyn Stream<Item = Data>>>,
     is_history_ended: bool,
+
     #[pin]
     ws_stream: Pin<Box<dyn Duplex<Action, anyhow::Error, Data>>>,
+
+    order_cooldown: Duration,
+    last_order_time: DateTime<Utc>,
 }
 
 impl Terminal {
-    pub async fn new(
-        endpoint: OkxWsEndpoint,
-        subscribe_action: Action,
+    pub async fn new_okx(
+        is_simu: bool,
+        subscribe_actions: Vec<Action>,
         history_duration: Duration,
     ) -> Result<Self> {
-        if !matches!(subscribe_action, Action::SubscribeBboTbt(_)) {
-            unimplemented!()
-        }
+        for action in &subscribe_actions {
+            if !matches!(
+                action,
+                Action::SubscribeOrders(_) | Action::SubscribeBboTbt(_)
+            ) {
+                unimplemented!()
+            }
+        };
         let history_stream = query_bbo(
             QueryOption::new()
                 .with_instrument(InstId::EthUsdtSwap)
                 .with_duration(history_duration),
         )
         .map(Data::Bbo);
-        let ws_stream = connect(endpoint, vec![subscribe_action]).await?;
+        let ws_stream = connect_adapted(subscribe_actions, is_simu).await?;
 
         Ok(Self {
             history_stream: Box::pin(history_stream),
             is_history_ended: false,
             ws_stream: Box::pin(ws_stream),
+            order_cooldown: Duration::seconds(1),
+            last_order_time: DateTime::<Utc>::from_timestamp_nanos(0),
         })
     }
 }

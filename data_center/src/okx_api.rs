@@ -1,6 +1,5 @@
 pub mod actions;
 pub(crate) mod pushes;
-pub mod terminal;
 pub(crate) mod types;
 
 use core::{pin::Pin, task::Poll};
@@ -18,7 +17,6 @@ use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
 use pin_project::pin_project;
 use pushes::Push;
-use serde_json::json;
 use sha2::Sha256;
 use tokio_tungstenite::{
     connect_async,
@@ -27,8 +25,6 @@ use tokio_tungstenite::{
 use utils::Duplex;
 
 use crate::utils::{AutoReconnect, Heartbeat};
-
-pub use terminal::Terminal;
 
 const PUBLIC_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/public";
 const PRIVATE_WS_URL: &str = "wss://ws.okx.com:8443/ws/v5/private";
@@ -249,6 +245,116 @@ where
             }
         }
     }
+}
+
+/// okx的private和pubic只能接受限定频道的订阅。该struct的Sink能够针对action，send向给定的订阅。
+#[pin_project(project = OkxWsStreamAdaptedProj)]
+pub struct OkxWsStreamAdapted<S> {
+    #[pin]
+    public: S,
+    #[pin]
+    private: S,
+}
+
+impl Action {
+    fn is_private(&self) -> bool {
+        match self {
+            Action::SubscribeTrades(_) | Action::SubscribeBboTbt(_) => false,
+            Action::SubscribeOrders(_)
+            | Action::LimitOrder { .. }
+            | Action::MarketOrder { .. }
+            | Action::AmendOrder { .. }
+            | Action::CancelOrder { .. } => true,
+        }
+    }
+}
+
+impl<S> Stream for OkxWsStreamAdapted<S>
+where
+    S: Duplex<Action, anyhow::Error, Data>,
+{
+    type Item = <S as Stream>::Item;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        if let Some(item) = ready!(this.public.as_mut().poll_next(cx)) {
+            return Poll::Ready(Some(item));
+        }
+        if let Some(item) = ready!(this.private.as_mut().poll_next(cx)) {
+            return Poll::Ready(Some(item));
+        }
+        Poll::Ready(None)
+    }
+}
+
+impl<S> Sink<Action> for OkxWsStreamAdapted<S>
+where
+    S: Duplex<Action, anyhow::Error, Data>,
+{
+    type Error = <S as Sink<Action>>::Error;
+
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        let mut this = self.project();
+        ready!(this.public.as_mut().poll_ready(cx))?;
+        ready!(this.private.as_mut().poll_ready(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: Action) -> std::result::Result<(), Self::Error> {
+        let this = self.project();
+        let mut sink = if item.is_private() {
+            this.private
+        } else {
+            this.public
+        };
+        sink.as_mut().start_send(item).map_err(|e| {
+            tracing::error!("Failed to send message: {e}");
+            e
+        })
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        let mut this = self.project();
+        ready!(this.public.as_mut().poll_flush(cx))?;
+        ready!(this.private.as_mut().poll_flush(cx))?;
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::result::Result<(), Self::Error>> {
+        let mut this = self.project();
+        ready!(this.public.as_mut().poll_close(cx))?;
+        ready!(this.private.as_mut().poll_close(cx))?;
+        Poll::Ready(Ok(()))
+    }
+}
+
+pub async fn connect_adapted(
+    subscribe_actions: Vec<Action>,
+    is_simu: bool,
+) -> Result<impl Duplex<Action, anyhow::Error, Data>> {
+    let (public_endpoint, private_endpoint) = if is_simu {
+        (OkxWsEndpoint::PublicSimu, OkxWsEndpoint::PrivateSimu)
+    } else {
+        (OkxWsEndpoint::Public, OkxWsEndpoint::Private)
+    };
+    let (private_actions, public_actions): (Vec<_>, Vec<_>) = subscribe_actions
+        .into_iter()
+        .partition(|action| action.is_private());
+    let public_ws = connect(public_endpoint, public_actions).await?;
+    let private_ws = connect(private_endpoint, private_actions).await?;
+    let adapted_ws = OkxWsStreamAdapted {
+        public: public_ws,
+        private: private_ws,
+    };
+    Ok(adapted_ws)
 }
 
 pub fn with_heartbeat<S>(ws_stream: S) -> Heartbeat<S>

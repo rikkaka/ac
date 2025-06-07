@@ -135,74 +135,13 @@ where
     }
 }
 
-impl<DP, D, M> Sink<Vec<ClientEvent>> for SandboxBroker<DP, D, M>
-where
-    DP: DataProvider<D>,
-    D: MarketData<M>,
-    M: MatchOrder,
-{
-    type Error = anyhow::Error;
-
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn start_send(self: Pin<&mut Self>, item: Vec<ClientEvent>) -> Result<(), Self::Error> {
-        let this = self.get_mut();
-        this.on_client_events(item.into_iter());
-        Ok(())
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-}
-
-impl<DP, D, M> Stream for SandboxBroker<DP, D, M>
-where
-    DP: DataProvider<D>,
-    D: MarketData<M>,
-    M: MatchOrder,
-{
-    type Item = BrokerEvent<D>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut this = self.as_mut().project();
-
-        // 若buf中尚有未推送的事件，则推送
-        if let Some(event) = this.broker_events_buf.pop_front() {
-            return Poll::Ready(Some(event));
-        }
-
-        // 获取最新的Bbo数据并更新字段，同时检查挂单能否被fill。将新的fill的挂单与Bbo放入buf中，并推送buf的第一条数据。
-        if let Some(data) = ready!(this.data_provider.as_mut().poll_next(cx)) {
-            self.on_data(data.clone());
-            self.broker_events_buf.push_back(BrokerEvent::Data(data));
-
-            let event = self.broker_events_buf.pop_front().unwrap();
-
-            Poll::Ready(Some(event))
-        } else {
-            let total_value = self.get_total_value();
-            let ts = self.ts;
-            self.reporter.insert(ts, total_value);
-            self.reporter.end();
-            Poll::Ready(None)
-        }
-    }
-}
-
 impl<DP, D, M> Broker<D> for SandboxBroker<DP, D, M>
 where
     DP: DataProvider<D>,
     D: MarketData<M>,
     M: MatchOrder,
 {
-    fn on_client_event(&mut self, client_event: ClientEvent) {
+    async fn on_client_event(&mut self, client_event: ClientEvent) {
         match client_event {
             ClientEvent::PlaceOrder(order) => match order {
                 Order::Market(order) => {
@@ -226,16 +165,14 @@ where
                 }
             },
             ClientEvent::AmendOrder(order) => {
-                if let Order::Limit(order) = order {
-                    if let Some(existing_order) = self.limit_orders.get_mut(&order.order_id) {
-                        existing_order.price = order.price;
-                        existing_order.size = order.size;
-                        self.broker_events_buf
-                            .push_back(BrokerEvent::Amended(Order::Limit(*existing_order)));
-                    }
+                if let Some(existing_order) = self.limit_orders.get_mut(&order.order_id) {
+                    existing_order.price = order.new_price;
+                    existing_order.size = order.new_size;
+                    self.broker_events_buf
+                        .push_back(BrokerEvent::Amended(Order::Limit(*existing_order)));
                 }
             }
-            ClientEvent::CancelOrder(order_id) => {
+            ClientEvent::CancelOrder(_, order_id) => {
                 self.limit_orders.remove(&order_id);
                 self.broker_events_buf
                     .push_back(BrokerEvent::Canceled(order_id));
@@ -243,8 +180,26 @@ where
         }
     }
 
-    fn now(&self) -> Timestamp {
-        self.ts
+    async fn next_broker_event(&mut self) -> Option<BrokerEvent<D>> {
+        // 若buf中尚有未推送的事件，则推送
+        if let Some(event) = self.broker_events_buf.pop_front() {
+            return Some(event);
+        }
+
+        // 获取最新的Bbo数据并更新字段，同时检查挂单能否被fill。将新的fill的挂单与Bbo放入buf中，并推送buf的第一条数据。
+        if let Some(data) = self.data_provider.next().await {
+            self.on_data(data.clone());
+            self.broker_events_buf.push_back(BrokerEvent::Data(data));
+
+            return self.broker_events_buf.pop_front();
+        } else {
+            let total_value = self.get_total_value();
+            let ts = self.ts;
+            self.reporter.insert(ts, total_value);
+            self.reporter.end();
+            return None;
+        }
+
     }
 }
 
@@ -506,6 +461,8 @@ impl TransactionCostModel {
 mod tests {
     use float_cmp::assert_approx_eq;
 
+    use crate::AmendOrder;
+
     use super::*;
 
     #[test]
@@ -606,6 +563,15 @@ mod tests {
         })
     }
 
+    fn create_amend_order (order_id: u64, new_price: f64, new_size: f64) -> AmendOrder {
+        AmendOrder {
+            order_id,
+            instrument_id: InstId::EthUsdtSwap,
+            new_price,
+            new_size,
+        }
+    }
+
     macro_rules! create_sandbox_broker {
         ($inst_id:expr, $mock_data:expr) => {
             SandboxBroker::new(
@@ -631,7 +597,7 @@ mod tests {
         broker.on_client_event(ClientEvent::PlaceOrder(market_order));
 
         // Should have a fill event in buffer
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Fill(fill) => {
                 assert_eq!(fill.order_id, 1);
@@ -669,7 +635,7 @@ mod tests {
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
 
         // Should have a fill event
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Fill(fill) => {
                 assert_eq!(fill.order_id, 2);
@@ -697,7 +663,7 @@ mod tests {
         let limit_order = create_limit_order(3, 49999.0, 1.0, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         assert!(matches!(event, BrokerEvent::Placed(_)));
 
         // Should have the order in limit_orders map
@@ -705,7 +671,7 @@ mod tests {
         assert_eq!(broker.limit_orders.len(), 1);
 
         // Should get data event, not fill
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Data(_) => {
                 // Expected
@@ -730,7 +696,7 @@ mod tests {
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
 
         // First event should be order placed
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Placed(_) => {
                 // Expected
@@ -739,7 +705,7 @@ mod tests {
         }
 
         // First event should be data
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Data(_) => {
                 // Expected
@@ -748,7 +714,7 @@ mod tests {
         }
 
         // Second event should be fill (after price movement)
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Fill(fill) => {
                 assert_eq!(fill.order_id, 4);
@@ -774,14 +740,14 @@ mod tests {
         let limit_order = create_limit_order(5, 49999.0, 1.0, true);
 
         broker.on_client_event(ClientEvent::PlaceOrder(limit_order));
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         assert!(matches!(event, BrokerEvent::Placed(_)));
 
         // Amend the order
-        let amended_order = create_limit_order(5, 50001.0, 0.8, true);
+        let amended_order = create_amend_order(5, 50001.0, 0.8);
 
         broker.on_client_event(ClientEvent::AmendOrder(amended_order));
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         assert!(matches!(event, BrokerEvent::Amended(_)));
 
         // Check that order was amended
@@ -790,7 +756,7 @@ mod tests {
         assert_eq!(order.size, 0.8);
 
         // Get data event
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         assert!(matches!(event, BrokerEvent::Data(_)));
     }
 
@@ -807,7 +773,7 @@ mod tests {
         assert!(broker.limit_orders.contains_key(&6));
 
         // Cancel the order
-        broker.on_client_event(ClientEvent::CancelOrder(6));
+        broker.on_client_event(ClientEvent::CancelOrder(InstId::EthUsdtSwap, 6));
 
         // Order should be removed
         assert!(!broker.limit_orders.contains_key(&6));
@@ -875,7 +841,7 @@ mod tests {
         ];
 
         // Process all events
-        while let Some(event) = broker.next().await {
+        while let Some(event) = broker.next_broker_event().await {
             match event {
                 BrokerEvent::Fill(fill) => {
                     assert_eq!(fill, expected_fills[fill_count]);
@@ -934,7 +900,7 @@ mod tests {
         broker.on_client_event(ClientEvent::PlaceOrder(create_market_order(1, 0.1, true)));
 
         // Get first event (fill)
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Fill(_) => {
                 // Expected - market order filled
@@ -943,7 +909,7 @@ mod tests {
         }
 
         // 2. Price moves up, get data event
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Data(_) => {
                 // Expected - price change event
@@ -955,7 +921,7 @@ mod tests {
         broker.on_client_event(ClientEvent::PlaceOrder(create_market_order(2, 0.05, false)));
 
         // Get sell fill event
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Fill(_) => {
                 // Expected - market order filled
@@ -964,7 +930,7 @@ mod tests {
         }
 
         // 4. Price moves down, get data event
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Data(_) => {
                 // Expected - price change event
@@ -976,7 +942,7 @@ mod tests {
         broker.on_client_event(ClientEvent::PlaceOrder(create_market_order(3, 0.1, true)));
 
         // Get buy fill event
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Fill(_) => {
                 // Expected - market order filled
@@ -985,7 +951,7 @@ mod tests {
         }
 
         // 6. Final price moves up, get data event
-        let event = broker.next().await.unwrap();
+        let event = broker.next_broker_event().await.unwrap();
         match event {
             BrokerEvent::Data(_) => {
                 // Expected - final price change event
@@ -994,7 +960,7 @@ mod tests {
         }
 
         // No more events
-        assert!(broker.next().await.is_none());
+        assert!(broker.next_broker_event().await.is_none());
 
         dbg!(&broker.reporter.value_history);
         // Check reporter's value history

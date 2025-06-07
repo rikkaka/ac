@@ -10,7 +10,7 @@ use utils::Timestamped;
 
 pub use crate::okx_api::types::{ExecType, InstId, OrdType, OrderState};
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug)]
 pub enum Action {
     SubscribeTrades(InstId),
     SubscribeBboTbt(InstId),
@@ -44,7 +44,7 @@ pub enum Action {
     },
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 #[serde(rename_all = "kebab-case")]
 pub enum Side {
     Buy,

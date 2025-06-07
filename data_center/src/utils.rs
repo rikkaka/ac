@@ -52,8 +52,8 @@ impl<S> Heartbeat<S>
 where
     S: Duplex<Message, tungstenite::Error, Result<Message, tungstenite::Error>>,
 {
-    pub fn new(inner: S, interval: Duration, pong_timeout: Duration) -> Self {
-        let ticker = tokio::time::interval(interval);
+    pub fn new(inner: S, ping_interval: Duration, pong_timeout: Duration) -> Self {
+        let ticker = tokio::time::interval(ping_interval);
         let pong_timer = tokio::time::interval(pong_timeout);
         Self {
             inner,
