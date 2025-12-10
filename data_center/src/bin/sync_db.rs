@@ -16,10 +16,13 @@ async fn main() {
 }
 
 async fn sync_table(table_name: &str) {
+    let args = std::env::args().collect::<Vec<_>>();
+    let is_delete = args.get(1).map_or(false, |arg| arg == "--delete");
     let remote_table_name = format!("{REMOTE_SCHEMA}.{table_name}");
 
     let sql = format!("SELECT MAX(ts) FROM {table_name}");
     let max_ts: Option<i64> = sqlx::query_scalar(&sql).fetch_one(&*POOL).await.ok();
+    println!("Syncing table: {table_name}, max ts: {:?}", max_ts);
 
     let mut sql = format!("INSERT INTO {table_name} SELECT * FROM {remote_table_name}");
     if let Some(max_ts) = max_ts {
@@ -27,4 +30,12 @@ async fn sync_table(table_name: &str) {
     }
     sql.push_str(" ON CONFLICT DO NOTHING");
     POOL.execute(sqlx::query(&sql)).await.unwrap();
+
+    if is_delete {
+        let delete_sql = format!(
+            "DELETE FROM {remote_table_name} WHERE ts <= {}",
+            max_ts.unwrap_or(0)
+        );
+        dbg!(POOL.execute(sqlx::query(&delete_sql)).await.unwrap());
+    }
 }
