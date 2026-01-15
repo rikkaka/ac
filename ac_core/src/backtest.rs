@@ -63,6 +63,7 @@ where
                 }
             } else {
                 tracing::error!("No enough data from the data provider");
+                break;
             }
         }
 
