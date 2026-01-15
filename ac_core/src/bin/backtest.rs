@@ -16,7 +16,7 @@ async fn main() {
     let instrument_id = InstId::EthUsdtSwap;
     let instruments = vec![instrument_id];
 
-    let data_provider = get_bbo_history_provider(instruments.clone(), Duration::hours(2400));
+    let data_provider = get_bbo_history_provider(instruments.clone(), Duration::days(300));
 
     let strategy_args = OfiMomentumArgs {
         instrument_id,
