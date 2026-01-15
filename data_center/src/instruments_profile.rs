@@ -17,6 +17,7 @@ type InstrumentProfiles = FxHashMap<InstId, InstrumentProfile>;
 
 #[derive(Deserialize, Debug)]
 pub struct InstrumentProfile {
+    /// The size of the underlying asset for each unit of the contract
     pub size_scale: f64,
     pub size_digits: i32,
     pub price_digits: i32,
