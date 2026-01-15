@@ -215,7 +215,7 @@ impl ClientEvent {
 }
 
 /// D: type for the data; IE: error type for the input
-trait Broker<D> {
+pub trait Broker<D> {
     async fn on_client_event(&mut self, client_event: ClientEvent);
     async fn on_client_events(&mut self, client_events: impl Iterator<Item = ClientEvent>) {
         for event in client_events {
