@@ -324,7 +324,7 @@ where
                 break;
             };
             let client_events = self.strategy.on_event(&broker_event);
-            self.broker.on_client_events(client_events.into_iter());
+            self.broker.on_client_events(client_events.into_iter()).await;
         }
     }
 
