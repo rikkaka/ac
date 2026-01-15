@@ -1,4 +1,4 @@
 [ETH-USDT-SWAP]
-size_scale = 0.1
+size_scale = 0.1  # The size of the underlying asset for each unit of the contract
 size_digits = 2
 price_digits = 2
