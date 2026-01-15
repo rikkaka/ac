@@ -1,5 +1,3 @@
-use std::env;
-
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
 use either::Either;
