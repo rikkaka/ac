@@ -23,7 +23,6 @@ pub struct Terminal {
     #[pin]
     ws_stream: Box<dyn Duplex<Action, anyhow::Error, Data>>,
 
-    order_cooldown: Duration,
     last_order_time: DateTime<Utc>,
 }
 
@@ -53,7 +52,6 @@ impl Terminal {
             history_stream: Box::pin(history_stream),
             is_history_ended: false,
             ws_stream: Box::new(ws_stream),
-            order_cooldown: Duration::seconds(1),
             last_order_time: DateTime::<Utc>::from_timestamp_nanos(0),
         })
     }
