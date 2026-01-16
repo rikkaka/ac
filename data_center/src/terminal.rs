@@ -17,12 +17,11 @@ use crate::{
 // 推送的是可以直接拿去用的Data。
 #[pin_project]
 pub struct Terminal {
-    #[pin]
     history_stream: Pin<Box<dyn Stream<Item = Data>>>,
     is_history_ended: bool,
 
     #[pin]
-    ws_stream: Pin<Box<dyn Duplex<Action, anyhow::Error, Data>>>,
+    ws_stream: Box<dyn Duplex<Action, anyhow::Error, Data>>,
 
     order_cooldown: Duration,
     last_order_time: DateTime<Utc>,
@@ -53,7 +52,7 @@ impl Terminal {
         Ok(Self {
             history_stream: Box::pin(history_stream),
             is_history_ended: false,
-            ws_stream: Box::pin(ws_stream),
+            ws_stream: Box::new(ws_stream),
             order_cooldown: Duration::seconds(1),
             last_order_time: DateTime::<Utc>::from_timestamp_nanos(0),
         })
