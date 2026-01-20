@@ -87,6 +87,7 @@ where
         &self.reporter
     }
 
+    // 处理fill事件，更新资金和持仓，并记录到reporter中
     fn on_fill(&mut self, fill: &Fill) {
         let cost = self.transaction_cost_model.calculate_cost(fill);
         self.cash -= cost;
@@ -102,6 +103,7 @@ where
         dbg!(fill);
     }
 
+    // 处理新的市场数据，更新内部状态并尝试匹配限价单
     pub fn on_data(&mut self, new_data: D) {
         self.ts = new_data.get_ts();
         if let Some(matcher) = new_data.draw_matcher() {
@@ -142,6 +144,7 @@ where
     D: MarketData<M>,
     M: MatchOrder,
 {
+    // 处理ClientEvent，例如下单、撤单、改单等
     async fn on_client_event(&mut self, client_event: ClientEvent) {
         match client_event {
             ClientEvent::PlaceOrder(order) => match order {
@@ -181,6 +184,7 @@ where
         }
     }
 
+    // 获取下一个BrokerEvent。如果没有事件，则从DataProvider获取新的市场数据并更新状态
     async fn next_broker_event(&mut self) -> Option<BrokerEvent<D>> {
         // 若buf中尚有未推送的事件，则推送
         if let Some(event) = self.broker_events_buf.pop_front() {
